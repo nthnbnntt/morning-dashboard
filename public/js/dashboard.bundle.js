@@ -28,7 +28,7 @@ var MorningDashboard = (() => {
   function qs(selector, root = document) {
     return root.querySelector(selector);
   }
-  function qsa2(selector, root = document) {
+  function qsa(selector, root = document) {
     return Array.from(root.querySelectorAll(selector));
   }
   function mdLog(event, fields = {}) {
@@ -446,14 +446,14 @@ var MorningDashboard = (() => {
     const active = /* @__PURE__ */ new Set();
     function apply() {
       const has = active.size > 0;
-      qsa2(".story[data-source]", root).forEach((card) => {
+      qsa(".story[data-source]", root).forEach((card) => {
         card.classList.toggle("hidden", has && !active.has(card.dataset.source));
       });
-      qsa2(".source-list button", root).forEach((button) => {
+      qsa(".source-list button", root).forEach((button) => {
         button.classList.toggle("active", active.has(button.dataset.source));
       });
     }
-    qsa2(".source-list button", root).forEach((button) => {
+    qsa(".source-list button", root).forEach((button) => {
       button.addEventListener("click", () => {
         const source = button.dataset.source;
         if (active.has(source)) active.delete(source);
@@ -661,10 +661,10 @@ var MorningDashboard = (() => {
     }
     const newCount = records.filter((record) => record.isNew).length;
     view.querySelector("#release-status").textContent = `${records.length} release notes loaded / ${newCount} new. Updated ${payload.generated}.`;
-    qsa2(".filters button", view).forEach((button) => {
+    qsa(".filters button", view).forEach((button) => {
       button.addEventListener("click", () => {
         filter = button.dataset.filter;
-        qsa2(".filters button", view).forEach((item) => item.classList.toggle("active", item === button));
+        qsa(".filters button", view).forEach((item) => item.classList.toggle("active", item === button));
         renderList();
       });
     });

@@ -1,4 +1,4 @@
-import { config, empty, error, esc, mdFetch, mdLog, qs, safeUrl } from "./utils.js";
+import { config, empty, error, esc, mdFetch, mdLog, qs, qsa, safeUrl } from "./utils.js";
 
 function cellValue(cell) {
   const value = cell && Object.prototype.hasOwnProperty.call(cell, "value") ? cell.value : cell;
