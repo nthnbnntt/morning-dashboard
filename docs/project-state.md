@@ -16,7 +16,7 @@ The Worker remains responsible for D1 storage, news cache refreshes, metrics, Qu
 - GitHub repo: `https://github.com/nthnbnntt/morning-dashboard`
 - GitHub Pages assets: `https://nthnbnntt.github.io/morning-dashboard/`
 - Quickbase code page shell: `public/quickbase-dashboard.html`
-- Worker API default in config: `https://morning-dashboard.nthnbnntt.workers.dev`
+- Worker API default in config: `https://morning-dashboard.n8visions.workers.dev`
 
 If the Worker is deployed at a custom route or a different workers.dev subdomain, update `public/js/config.js`.
 

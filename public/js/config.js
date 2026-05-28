@@ -3,7 +3,7 @@
   const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
   const defaultApiBaseUrl = isLocal
     ? "http://localhost:8787"
-    : "https://morning-dashboard.nthnbnntt.workers.dev";
+    : "https://morning-dashboard.n8visions.workers.dev";
   const defaults = {
     appName: "Morning Dashboard",
     assetBaseUrl: "https://nthnbnntt.github.io/morning-dashboard",
