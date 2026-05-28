@@ -24,6 +24,7 @@ If the Worker is deployed at a custom route or a different workers.dev subdomain
 
 - Browser dashboard routing uses hash routes: `#news`, `#tickets`, `#releases`, `#company`, and `#metrics`.
 - Static feature modules live under `public/js/features/`.
+- Quickbase loads `public/js/dashboard.bundle.js`, which is built from `public/js/app.js` by `npm run build:assets`.
 - Cloudflare endpoints stay under `/api/*`.
 - Quickbase ticket reads use the browser session and temporary token flow for realm `vtg.quickbase.com`, app `br35mavda`, table `bsmpv3zg4`.
 - CORS allows Quickbase, GitHub Pages, and local development origins.

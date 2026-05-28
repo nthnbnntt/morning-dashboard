@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:assets": "esbuild public/js/app.js --bundle --format=iife --global-name=MorningDashboard --target=es2020 --outfile=public/js/dashboard.bundle.js",
     "dev": "wrangler dev --test-scheduled",
     "deploy": "wrangler deploy",
     "types": "wrangler types",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "check:assets": "npm run build:assets && node --check public/js/dashboard.bundle.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "esbuild": "^0.27.3",
     "typescript": "^5.9.0",
     "wrangler": "^4.0.0"
   }

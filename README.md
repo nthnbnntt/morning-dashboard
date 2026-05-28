@@ -52,8 +52,10 @@ migrations/0001_initial.sql
 
 ```sh
 npm install
+npm run build:assets
 npm run types
 npm run check
+npm run check:assets
 npx wrangler d1 migrations apply morning-dashboard --local
 npm run dev
 ```

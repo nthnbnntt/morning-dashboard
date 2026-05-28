@@ -34,6 +34,7 @@ Run these before handing work back when relevant:
 
 ```sh
 npm run check
+npm run check:assets
 npm run dev
 ```
 
