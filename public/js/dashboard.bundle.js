@@ -530,9 +530,9 @@ var MorningDashboard = (() => {
         from: cfg.quickbaseTicketsTable,
         select: [fields.rid, fields.date, fields.app, fields.type, fields.status, fields.submitter, fields.issue],
         where: `{${fields.status}.XEX.'CLOSED'}`,
+        sortBy: [{ fieldId: fields.date, order: "DESC" }],
         options: {
-          top: 100,
-          sortBy: [{ fieldId: fields.date, order: "DESC" }]
+          top: 100
         }
       })
     });
