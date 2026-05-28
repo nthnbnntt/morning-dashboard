@@ -374,22 +374,72 @@ h1 {
   align-items: start;
 }
 
+.ticket-list {
+  display: grid;
+  margin-top: 12px;
+}
+
 .ticket-card {
   display: grid;
-  gap: 12px;
-  min-height: 190px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  padding: 16px 18px;
   cursor: pointer;
 }
 
-.ticket-fields,
+.ticket-card:hover {
+  border-color: rgba(15, 118, 110, 0.45);
+  background: var(--panel);
+}
+
+.ticket-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.ticket-id {
+  color: var(--teal);
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.ticket-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ticket-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 14px;
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.ticket-meta-grid .meta {
+  display: block;
+  margin-bottom: 4px;
+}
+
 .ticket-detail,
 .bars {
   display: grid;
   gap: 10px;
 }
 
-.ticket-field span {
-  display: block;
+.ticket-detail-summary {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ticket-detail-summary h3 {
+  margin: 0;
+  line-height: 1.3;
 }
 
 .company-card {
@@ -528,6 +578,10 @@ h1 {
     grid-template-columns: 1fr;
   }
 
+  .ticket-meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .company-card,
   .ticket-card {
     min-height: 0;
@@ -547,5 +601,9 @@ h1 {
 
   .lead h2 {
     font-size: 2.15rem;
+  }
+
+  .ticket-meta-grid {
+    grid-template-columns: 1fr;
   }
 }

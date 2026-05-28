@@ -14,7 +14,10 @@
     quickbaseTicketTokenDbid: "bsmpv3zg4",
     quickbaseTicketFields: {
       rid: 3,
+      date: 7,
       app: 11,
+      type: 14,
+      status: 19,
       submitter: 20,
       issue: 6
     }

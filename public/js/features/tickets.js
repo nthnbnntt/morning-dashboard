@@ -19,11 +19,29 @@ function normalizeTicket(row) {
   const rid = cellValue(row[String(fields.rid)]);
   return {
     rid,
+    date: cellValue(row[String(fields.date)]),
     app: cellValue(row[String(fields.app)]),
+    type: cellValue(row[String(fields.type)]),
+    status: cellValue(row[String(fields.status)]),
     submitter: cellValue(row[String(fields.submitter)]),
     issue: cellValue(row[String(fields.issue)]),
     url: recordUrl({ rid })
   };
+}
+
+function formatTicketDate(value) {
+  if (!value) return "No date";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function statusClass(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized.includes("urgent") || normalized.includes("late") || normalized.includes("blocked")) return "high";
+  if (normalized.includes("new") || normalized.includes("open")) return "normal";
+  if (normalized.includes("progress") || normalized.includes("pending")) return "low";
+  return "released";
 }
 
 async function getTemporaryToken() {
@@ -59,10 +77,11 @@ async function loadTickets() {
     },
     body: JSON.stringify({
       from: cfg.quickbaseTicketsTable,
-      select: [fields.rid, fields.app, fields.submitter, fields.issue],
+      select: [fields.rid, fields.date, fields.app, fields.type, fields.status, fields.submitter, fields.issue],
+      where: `{${fields.status}.XEX.'CLOSED'}`,
       options: {
         top: 100,
-        sortBy: [{ fieldId: fields.rid, order: "DESC" }]
+        sortBy: [{ fieldId: fields.date, order: "DESC" }]
       }
     })
   });
@@ -74,11 +93,16 @@ async function loadTickets() {
 function ticketCard(ticket) {
   return `
     <article class="card ticket-card" data-rid="${esc(ticket.rid)}">
-      <span class="pill normal">Record ${esc(ticket.rid)}</span>
+      <div class="ticket-card-head">
+        <span class="ticket-id">#${esc(ticket.rid)}</span>
+        <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
+      </div>
       <h3>${esc(ticket.issue || "No issue text")}</h3>
-      <div class="ticket-fields">
-        <div class="ticket-field"><span class="meta">App</span>${esc(ticket.app || "")}</div>
-        <div class="ticket-field"><span class="meta">Submitter</span>${esc(ticket.submitter || "")}</div>
+      <div class="ticket-meta-grid">
+        <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
+        <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
+        <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
+        <div><span class="meta">App</span>${esc(ticket.app || "Unassigned")}</div>
       </div>
     </article>
   `;
@@ -87,10 +111,16 @@ function ticketCard(ticket) {
 function openTicket(ticket) {
   qs("#ticket-title").textContent = `Ticket ${ticket.rid}`;
   qs("#ticket-detail").innerHTML = `
-    <div><span class="meta">Issue</span><p>${esc(ticket.issue || "")}</p></div>
-    <div class="row">
-      <div><span class="meta">App</span><p>${esc(ticket.app || "")}</p></div>
-      <div><span class="meta">Submitter</span><p>${esc(ticket.submitter || "")}</p></div>
+    <div class="ticket-detail-summary">
+      <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
+      <span class="ticket-id">#${esc(ticket.rid)}</span>
+      <h3>${esc(ticket.issue || "No issue text")}</h3>
+    </div>
+    <div class="ticket-meta-grid">
+      <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
+      <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
+      <div><span class="meta">App</span>${esc(ticket.app || "Unassigned")}</div>
+      <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
     </div>
     <a class="refresh" href="${esc(safeUrl(ticket.url))}" target="_blank" rel="noreferrer">Open record in Quickbase</a>
   `;
@@ -106,7 +136,7 @@ export async function renderTickets(view) {
       <p id="ticket-status">Connecting to Quickbase with your browser session...</p>
       <a href="${esc(tableUrl)}" target="_blank" rel="noreferrer">Open ticket table</a>
     </section>
-    <section class="grid two ticket-list" id="ticket-list"></section>
+    <section class="ticket-list" id="ticket-list"></section>
     <div class="modal" id="ticket-modal">
       <div class="modal-panel">
         <div class="modal-head"><h2 id="ticket-title">Ticket</h2><button id="ticket-close" type="button">Close</button></div>
