@@ -4,14 +4,6 @@ export interface Env {
   ADMIN_WRITE_TOKEN: string;
 }
 
-type Ticket = {
-  rid: string;
-  app: string;
-  submitter: string;
-  issue: string;
-  url: string;
-};
-
 type Story = {
   source: string;
   title: string;
@@ -57,12 +49,19 @@ const FEEDS: Array<[string, string]> = [
 const QUICKBASE_STATUS_URL = "https://quickbasestatus.status.page/";
 const QUICKBASE_RELEASES_URL = "https://resources.quickbase.com/db/bu9ax9c5r/4bade523-f7d9-4419-b904-2ce64770b431?from=myqb&a=appoverview";
 const QUICKBASE_RELEASES_TABLE = "bu9a2h65e";
-const QUICKBASE_REALM = "vtg.quickbase.com";
-const QUICKBASE_TICKETS_APP = "br35mavda";
-const QUICKBASE_TICKETS_TABLE = "bsmpv3zg4";
 const VTG_NEWS_URL = "https://vtgdefense.com/our-company/news/";
+const STATIC_DASHBOARD_URL = "https://nthnbnntt.github.io/morning-dashboard/quickbase-dashboard.html";
+const ALLOWED_ORIGINS = new Set([
+  "https://vtg.quickbase.com",
+  "https://nthnbnntt.github.io",
+  "http://127.0.0.1:8787",
+  "http://127.0.0.1:8080",
+  "http://localhost:8787",
+  "http://localhost:8080"
+]);
 
 const pageNames: Record<string, string> = {
+  "/": "News",
   "/news.html": "News",
   "/tickets.html": "Tickets",
   "/quickbase-releases.html": "Releases",
@@ -85,19 +84,18 @@ function logError(event: string, error: unknown, fields: LogFields = {}): void {
   console.error(JSON.stringify({ level: "error", event, ...fields, ...details }));
 }
 
-function escapeHtml(value: unknown): string {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[char] ?? char);
-}
-
-function safeUrl(value: unknown): string {
-  const s = String(value ?? "").trim();
-  return /^https?:\/\//i.test(s) ? s : "#";
+function corsHeaders(request: Request): HeadersInit {
+  const origin = request.headers.get("Origin") ?? "";
+  const headers: Record<string, string> = {
+    "vary": "Origin",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "content-type,x-admin-token",
+    "access-control-max-age": "86400"
+  };
+  if (ALLOWED_ORIGINS.has(origin)) {
+    headers["access-control-allow-origin"] = origin;
+  }
+  return headers;
 }
 
 function cleanText(value: string): string {
@@ -114,23 +112,30 @@ function cleanText(value: string): string {
     .trim();
 }
 
-function shorten(value: string, limit: number): string {
-  if (value.length <= limit) return value;
-  return value.slice(0, limit - 3).replace(/\s+\S*$/, "") + "...";
+function escapeHtml(value: unknown): string {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char] ?? char);
 }
 
-function json(payload: unknown, status = 200, maxAge = 0): Response {
+function json(request: Request, payload: unknown, status = 200, maxAge = 0): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": maxAge > 0 ? `public, max-age=${maxAge}, stale-while-revalidate=60` : "no-store"
+      "cache-control": maxAge > 0 ? `public, max-age=${maxAge}, stale-while-revalidate=60` : "no-store",
+      ...corsHeaders(request)
     }
   });
 }
 
-function htmlResponse(body: string): Response {
+function html(body: string, status = 200): Response {
   return new Response(body, {
+    status,
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store"
@@ -140,24 +145,6 @@ function htmlResponse(body: string): Response {
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function displayDate(date = new Date()): string {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "America/New_York"
-  }).format(date);
-}
-
-function displayTime(date = new Date()): string {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "America/New_York"
-  }).format(date);
 }
 
 function displayStamp(date = new Date()): string {
@@ -210,9 +197,9 @@ async function trackPage(env: Env, path: string, elapsed: number): Promise<void>
 
 function requireAdminToken(request: Request, env: Env): Response | null {
   const token = env.ADMIN_WRITE_TOKEN?.trim();
-  if (!token) return null;
+  if (!token) return json(request, { ok: false, error: "Admin refresh is disabled until ADMIN_WRITE_TOKEN is configured." }, 403);
   if (request.headers.get("x-admin-token") === token) return null;
-  return json({ ok: false, error: "Missing or invalid write token" }, 401);
+  return json(request, { ok: false, error: "Missing or invalid write token" }, 401);
 }
 
 function extractTag(block: string, tag: string): string {
@@ -266,19 +253,19 @@ async function refreshNews(env: Env): Promise<Story[]> {
   return stories;
 }
 
-async function cachedStories(env: Env): Promise<Story[]> {
-  const row = await env.DB.prepare("SELECT payload FROM news_cache WHERE id = 1").first<{ payload: string }>();
+async function cachedStories(env: Env): Promise<{ stories: Story[]; refreshedAt: string }> {
+  const row = await env.DB.prepare("SELECT payload, refreshed_at FROM news_cache WHERE id = 1").first<{ payload: string; refreshed_at: string }>();
   if (!row) {
     logWarn("news.cache_miss");
-    return refreshNews(env);
+    return { stories: await refreshNews(env), refreshedAt: nowIso() };
   }
   try {
     const stories = JSON.parse(row.payload) as Story[];
     logInfo("news.cache_hit", { stories: stories.length });
-    return stories;
+    return { stories, refreshedAt: row.refreshed_at };
   } catch (error) {
     logError("news.cache_parse_failed", error);
-    return refreshNews(env);
+    return { stories: await refreshNews(env), refreshedAt: nowIso() };
   }
 }
 
@@ -391,159 +378,81 @@ async function metrics(env: Env): Promise<Record<string, unknown>> {
   };
 }
 
-function layout(title: string, mark: string, active: string, body: string, script = ""): string {
-  const nav = [
-    ["News", "news.html"],
-    ["Tickets", "tickets.html"],
-    ["Releases", "quickbase-releases.html"],
-    ["Company", "company-news.html"],
-    ["Metrics", "metrics.html"]
-  ].map(([label, href]) => `<a href="${href}"${label === active ? ' aria-current="page"' : ""}>${label}</a>`).join("");
-  return `<!doctype html>
+async function trackExternalPage(request: Request, env: Env, started: number): Promise<Response> {
+  let payload: { path?: unknown } = {};
+  try {
+    payload = await request.json();
+  } catch {
+    return json(request, { ok: false, error: "Invalid JSON" }, 400);
+  }
+  const path = typeof payload.path === "string" ? payload.path : "/";
+  await trackPage(env, path, performance.now() - started);
+  return json(request, { ok: true });
+}
+
+function dashboardLanding(env: Env): Response {
+  const title = env.APP_NAME || "Morning Dashboard";
+  return html(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)}</title>
-  <style>${baseCss()}</style>
+  <title>${title}</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#fbfbf6;color:#161713;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    main{width:min(680px,calc(100vw - 32px));border:1px solid #dcdfd2;border-radius:8px;background:#fff;padding:28px}
+    h1{margin:0 0 10px;font-size:1.6rem}p{color:#60645b;line-height:1.5}a{color:#0f766e;font-weight:800}
+  </style>
 </head>
 <body>
-  <main class="shell">
-    <header class="topbar">
-      <div class="brand"><div class="mark">${mark}</div><div><h1>${escapeHtml(title)}</h1><div class="subtle">${displayDate()}</div></div></div>
-      <nav class="nav" aria-label="Dashboard pages">${nav}</nav>
-      <div class="clock"><strong id="clock">${displayTime()}</strong><span>ET</span></div>
-    </header>
-    <div class="scroll-area">${body}</div>
+  <main>
+    <h1>${escapeHtml(title)}</h1>
+    <p>This Worker now serves the dashboard API and D1-backed storage. The browser dashboard is loaded as a Quickbase code page with assets from GitHub Pages.</p>
+    <p><a href="${STATIC_DASHBOARD_URL}">Open the GitHub Pages dashboard shell</a></p>
   </main>
-  <script>${sharedJs()}${script}</script>
 </body>
-</html>`;
-}
-
-function baseCss(): string {
-  return `
-:root{color-scheme:light;--ink:#161713;--muted:#60645b;--line:#dcdfd2;--paper:#fbfbf6;--panel:#fff;--accent:#c73c2d;--teal:#0f766e;--gold:#c18b20;--shadow:0 18px 50px rgba(22,23,19,.08)}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%;text-size-adjust:100%}body{margin:0;height:100dvh;overflow:hidden;background:linear-gradient(90deg,rgba(22,23,19,.04) 1px,transparent 1px),linear-gradient(180deg,rgba(22,23,19,.035) 1px,transparent 1px),var(--paper);background-size:44px 44px;color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit;font-size:16px}.shell{width:min(1180px,calc(100vw - 32px));height:100dvh;margin:0 auto;padding:28px 0 0;display:flex;flex-direction:column}.topbar{flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px 16px;padding-bottom:22px;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:12px;min-width:0;grid-column:1;grid-row:1}.mark{width:38px;height:38px;display:grid;place-items:center;border-radius:8px;background:var(--ink);color:var(--paper);font-weight:800;font-size:18px}h1{margin:0;font-size:clamp(1.35rem,2vw,2rem);line-height:1}.subtle{margin-top:5px;color:var(--muted);font-size:.92rem}.clock{grid-column:2;grid-row:1;text-align:right;color:var(--muted);font-size:.92rem;white-space:nowrap}.clock strong{display:block;color:var(--ink);font-size:1.35rem;line-height:1.1;margin-bottom:3px}.nav{display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;grid-column:1/-1;grid-row:2}.nav::-webkit-scrollbar{display:none}.nav a{display:inline-flex;align-items:center;white-space:nowrap;min-height:36px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.7);color:var(--muted);font-size:.9rem;font-weight:700}.nav a[aria-current=page]{border-color:var(--ink);color:var(--ink);background:var(--panel)}.scroll-area{flex:1 1 auto;min-height:0;overflow-y:auto;padding-bottom:42px}.panel,.card{border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.9);box-shadow:none}.panel{margin-top:24px;padding:20px;display:grid;gap:14px}.panel>h2{margin:0;font-size:.82rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}.panel>p{margin:0}.panel>a:not(.card){color:var(--teal);font-weight:700;font-size:.92rem}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.bars{display:grid;gap:9px;margin-top:10px}.bar-row{display:grid;grid-template-columns:minmax(72px,max-content) 1fr auto;align-items:center;gap:10px}.bar-track{height:7px;background:#ecefe4;border-radius:999px;overflow:hidden}.bar-fill{height:100%;background:var(--teal);border-radius:999px}.bar-val{font-size:.82rem;font-weight:700;min-width:24px;text-align:right;color:var(--ink)}.card{padding:18px}.meta,.pill{color:var(--muted);font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em}.pill{display:inline-flex;align-items:center;min-height:25px;border:1px solid var(--line);border-radius:999px;padding:4px 9px;background:var(--panel);margin:0 5px 5px 0}.pill.new,.pill.high{color:var(--accent);border-color:rgba(199,60,45,.35)}.pill.upcoming,.pill.low{color:var(--gold);border-color:rgba(193,139,32,.35)}.pill.released,.pill.normal{color:var(--teal);border-color:rgba(15,118,110,.35)}.lead{min-height:320px;margin-top:24px;padding:clamp(24px,4vw,44px);display:flex;flex-direction:column;justify-content:flex-end;border:1px solid var(--ink);border-radius:8px;background:linear-gradient(145deg,rgba(199,60,45,.12),transparent 40%),linear-gradient(315deg,rgba(15,118,110,.14),transparent 38%),var(--panel);box-shadow:var(--shadow)}.lead h2{max-width:780px;margin:12px 0 0;font-family:Georgia,"Times New Roman",serif;font-size:clamp(2.1rem,3.8vw,4.15rem);line-height:1;font-weight:600}.lead p,.card p{color:var(--muted);line-height:1.45}.source-list,.filters{display:flex;gap:6px;flex-wrap:wrap}.source-list button,.refresh{min-height:36px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--muted);padding:0 11px;font-size:.85rem;font-weight:700;white-space:nowrap;cursor:pointer}.source-list button.active{border-color:var(--ink);background:var(--ink);color:var(--paper)}.filter-pill{cursor:pointer;text-transform:uppercase}.filter-pill.active{background:#f7f8f1;border-color:currentColor}.story.hidden{display:none}.section-title{display:flex;justify-content:space-between;align-items:center;margin:34px 0 14px}.section-title h2{margin:0;font-size:.9rem;text-transform:uppercase;letter-spacing:.12em}.status{display:flex;align-items:center;gap:12px}.status-dot{width:13px;height:13px;border-radius:50%;background:var(--muted)}.status[data-state=normal] .status-dot{background:var(--teal)}.status[data-state=warning] .status-dot{background:var(--gold)}.status[data-state=disruption] .status-dot{background:var(--accent)}.ticket-list{gap:16px;align-items:start}.ticket-card{display:grid;gap:12px;min-height:190px;cursor:pointer}.ticket-card h3{margin:0;font-size:1.08rem;line-height:1.25}.ticket-fields{display:grid;gap:10px}.ticket-field span{display:block}.ticket-detail{display:grid;gap:14px;margin-top:16px}.ticket-detail p{margin:0;color:var(--muted);line-height:1.5}.company-list{gap:16px;align-items:start}.company-card{display:flex;flex-direction:column;min-height:245px;padding:20px}.company-card h3{margin:12px 0 0;font-size:1.08rem;line-height:1.22}.company-card p{margin:12px 0 0;line-height:1.42}.company-card a{margin-top:auto;padding-top:14px;color:var(--teal);font-weight:800}.release-card h3{margin:12px 0 0;font-size:1.08rem;line-height:1.22}.release-card p{margin:12px 0 0}.release-card a{display:inline-flex;margin-top:12px;color:var(--teal);font-weight:800}.fab{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));width:48px;height:48px;min-height:48px;border-radius:50%;border:1px solid var(--ink);background:var(--ink);color:var(--paper);font-size:1.7rem;box-shadow:var(--shadow);z-index:80}.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(22,23,19,.34);z-index:90}.modal.open{display:flex}.modal-panel{width:min(620px,100%);max-height:calc(100dvh - 40px);overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:0 24px 70px rgba(22,23,19,.22);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}label{display:grid;gap:7px;color:var(--muted);font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-top:12px}input,select,textarea{width:100%;min-height:52px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);padding:0 14px}textarea{min-height:132px;padding-top:14px;line-height:1.45}.button-row{display:flex;gap:10px;margin-top:14px}.button-row button,.modal-head button{min-height:44px;border:1px solid var(--ink);border-radius:8px;background:var(--ink);color:var(--paper);padding:0 14px;font-weight:800}.button-row .secondary,.modal-head button{border-color:var(--line);background:var(--panel);color:var(--muted)}.section-toggle{width:100%;min-height:44px;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);display:flex;justify-content:space-between;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.section-body{display:grid;gap:12px;margin:12px 0}.collapsed .section-body{display:none}.empty{padding:24px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.55)}.gauge{--pct:0;width:132px;height:132px;border-radius:50%;display:grid;place-items:center;margin:auto;background:conic-gradient(var(--teal) calc(var(--pct)*1%),#ecefe4 0)}.gauge strong{width:96px;height:96px;border-radius:50%;display:grid;place-items:center;background:var(--panel);font-size:1.4rem}@media(max-width:900px){.grid,.grid.two{grid-template-columns:1fr}.row{grid-template-columns:1fr}.company-card,.ticket-card{min-height:0}}@media(max-width:560px){.shell{width:min(calc(100% - 22px),1180px);padding-top:18px}.clock{align-self:start;padding-top:3px}.lead h2{font-size:2.15rem}}@view-transition{navigation:auto}@keyframes _stl{to{transform:translateX(-100%)}}@keyframes _sfr{from{transform:translateX(100%)}}@keyframes _str{to{transform:translateX(100%)}}@keyframes _sfl{from{transform:translateX(-100%)}}html[data-swipe=left]::view-transition-old(root){animation:_stl 280ms ease;z-index:1}html[data-swipe=left]::view-transition-new(root){animation:_sfr 280ms ease;z-index:2}html[data-swipe=right]::view-transition-old(root){animation:_str 280ms ease;z-index:1}html[data-swipe=right]::view-transition-new(root){animation:_sfl 280ms ease;z-index:2}
-`;
-}
-
-function sharedJs(): string {
-  return `
-(function(){const d=sessionStorage.getItem("swipe-dir");if(d){document.documentElement.dataset.swipe=d;sessionStorage.removeItem("swipe-dir")}})();function mdLog(event,fields){console.log("[Morning Dashboard]",Object.assign({event,path:location.pathname,at:new Date().toISOString()},fields||{}))}async function mdFetch(url,options){const started=performance.now();mdLog("api.fetch_started",{url,method:options?.method||"GET"});try{const response=await fetch(url,options);mdLog("api.fetch_completed",{url,method:options?.method||"GET",status:response.status,elapsedMs:Math.round(performance.now()-started)});return response}catch(error){console.error("[Morning Dashboard]",{event:"api.fetch_failed",path:location.pathname,url,method:options?.method||"GET",elapsedMs:Math.round(performance.now()-started),error:error?.message||String(error)});throw error}}function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}function safeUrl(v){const s=String(v||"").trim();return /^https?:\\/\\//i.test(s)?s:"#"}const clock=document.getElementById("clock");function tick(){if(clock)clock.textContent=new Intl.DateTimeFormat([], {hour:"numeric",minute:"2-digit",timeZone:"America/New_York"}).format(new Date())}function pull(){const area=document.querySelector(".scroll-area");if(!area||!("ontouchstart"in window))return;let y=null,ok=false;area.addEventListener("touchstart",e=>{if(area.scrollTop<=0){y=e.touches[0].clientY;ok=false}else y=null},{passive:true});area.addEventListener("touchmove",e=>{if(y===null||area.scrollTop>0)return;ok=e.touches[0].clientY-y>90},{passive:true});area.addEventListener("touchend",()=>{if(ok){mdLog("pull_refresh_triggered");location.reload()}y=null;ok=false},{passive:true})}function swipe(){const pages=["/news.html","/tickets.html","/quickbase-releases.html","/company-news.html","/metrics.html"];const cur=pages.indexOf(location.pathname);if(cur===-1)return;const area=document.querySelector(".scroll-area");if(!area)return;let x0=null,y0=null;area.addEventListener("touchstart",function(e){x0=e.touches[0].clientX;y0=e.touches[0].clientY},{passive:true});area.addEventListener("touchend",function(e){if(x0===null)return;const dx=e.changedTouches[0].clientX-x0,dy=e.changedTouches[0].clientY-y0;x0=null;if(Math.abs(dx)<60||Math.abs(dx)<Math.abs(dy)*1.5)return;if(dx<0&&cur<pages.length-1){mdLog("swipe_navigation",{direction:"left",to:pages[cur+1]});sessionStorage.setItem("swipe-dir","left");location.href=pages[cur+1]}else if(dx>0&&cur>0){mdLog("swipe_navigation",{direction:"right",to:pages[cur-1]});sessionStorage.setItem("swipe-dir","right");location.href=pages[cur-1]}},{passive:true})}mdLog("page.script_loaded",{title:document.title});tick();pull();swipe();setInterval(tick,30000);window.addEventListener("load",function(){mdLog("page.loaded");setTimeout(function(){["/api/quickbase-status","/api/quickbase-releases","/api/company-news","/api/metrics"].forEach(function(u){mdFetch(u).catch(function(){})})},800)});
-`;
-}
-
-async function newsPage(env: Env): Promise<string> {
-  const stories = await cachedStories(env);
-  const counts = new Map<string, number>();
-  stories.forEach((story) => counts.set(story.source, (counts.get(story.source) ?? 0) + 1));
-  const [lead, ...rest] = stories;
-  const sources = [...counts.entries()].map(([source, count]) => `<button type="button" data-source="${escapeHtml(source)}">${escapeHtml(source)} <strong>${count}</strong></button>`).join("");
-  const cards = rest.map((story, index) => storyCard(story, index + 2)).join("");
-  const body = `
-    <section class="panel">
-      <div class="status" id="qb-status" data-state="unknown"><span class="status-dot"></span><strong id="qb-label">Quickbase</strong><span class="meta" id="qb-detail">Checking status…</span><a id="qb-link" href="${escapeHtml(safeUrl(QUICKBASE_STATUS_URL))}" target="_blank" rel="noreferrer">Open</a></div>
-      <a class="card" href="tickets.html"><span class="meta">Tickets</span><h2>Live</h2></a>
-      <div class="source-list">${sources}</div>
-    </section>
-    ${lead ? `<section class="lead story" data-source="${escapeHtml(lead.source)}"><span class="meta">${escapeHtml(lead.source)} / ${escapeHtml(lead.published)}</span><h2><a href="${escapeHtml(safeUrl(lead.url))}" target="_blank" rel="noreferrer">${escapeHtml(lead.title)}</a></h2><p>${escapeHtml(shorten(lead.summary, 300))}</p></section>` : ""}
-    <section><div class="section-title"><h2 id="news-start">Priority Scan</h2><span class="meta">${stories.length} stories</span></div><div class="grid">${cards}</div></section>`;
-  const script = `
-mdFetch("/api/quickbase-status").then(r=>r.json()).then(d=>{const el=document.getElementById("qb-status");if(!el)return;el.dataset.state=d.state||"unknown";document.getElementById("qb-label").textContent="Quickbase "+(d.label||"");document.getElementById("qb-detail").textContent=d.detail||"";const lnk=document.getElementById("qb-link");if(lnk&&d.url)lnk.href=safeUrl(d.url);mdLog("quickbase.status_rendered",{state:d.state||"unknown",label:d.label||""})}).catch(()=>{});const active=new Set();function apply(){const has=active.size>0;document.querySelectorAll(".story[data-source]").forEach(card=>card.classList.toggle("hidden",has&&!active.has(card.dataset.source)));document.querySelectorAll(".source-list button").forEach(btn=>btn.classList.toggle("active",active.has(btn.dataset.source)))}document.querySelectorAll(".source-list button").forEach(btn=>btn.addEventListener("click",()=>{const source=btn.dataset.source;if(active.has(source))active.delete(source);else active.add(source);mdLog("news.source_filter_changed",{source,activeCount:active.size});apply();document.getElementById("news-start")?.scrollIntoView({behavior:"smooth",block:"start"})}));
-`;
-  return layout("Morning Briefing", "M", "News", body, script);
-}
-
-function storyCard(story: Story, index: number): string {
-  return `<article class="card story" data-source="${escapeHtml(story.source)}"><span class="meta">${String(index).padStart(2, "0")} / ${escapeHtml(story.source)}</span><h3><a href="${escapeHtml(safeUrl(story.url))}" target="_blank" rel="noreferrer">${escapeHtml(story.title)}</a></h3><p>${escapeHtml(shorten(story.summary, 190))}</p></article>`;
-}
-
-async function ticketsPage(): Promise<string> {
-  const tableUrl = `https://${QUICKBASE_REALM}/nav/app/${QUICKBASE_TICKETS_APP}/table/${QUICKBASE_TICKETS_TABLE}/action/td`;
-  const body = `<section class="panel"><h2>Quickbase Tickets</h2><p id="ticket-status">Connecting to Quickbase with your browser session...</p><a href="${escapeHtml(tableUrl)}" target="_blank" rel="noreferrer">Open ticket table</a></section><section class="grid two ticket-list" id="ticket-list"></section><div class="modal" id="ticket-modal"><div class="modal-panel"><div class="modal-head"><h2 id="ticket-title">Ticket</h2><button id="ticket-close">x</button></div><div id="ticket-detail" class="ticket-detail"></div></div></div>`;
-  const script = `
-const realm="${QUICKBASE_REALM}",appId="${QUICKBASE_TICKETS_APP}",tableId="${QUICKBASE_TICKETS_TABLE}",fields={rid:3,app:11,submitter:20,issue:6};let tickets=[];const status=document.getElementById("ticket-status"),listEl=document.getElementById("ticket-list"),modal=document.getElementById("ticket-modal"),detail=document.getElementById("ticket-detail");function value(cell){const v=cell&&Object.prototype.hasOwnProperty.call(cell,"value")?cell.value:cell;if(Array.isArray(v))return v.map(value).filter(Boolean).join(", ");if(v&&typeof v==="object")return v.fullName||v.name||v.email||v.label||v.id||JSON.stringify(v);return v==null?"":String(v)}function recordUrl(t){return "https://"+realm+"/nav/app/"+appId+"/table/"+tableId+"/action/dr?rid="+encodeURIComponent(t.rid)}function normalize(row){const rid=value(row[String(fields.rid)]);return{rid,app:value(row[String(fields.app)]),submitter:value(row[String(fields.submitter)]),issue:value(row[String(fields.issue)]),url:recordUrl({rid})}}async function getTempToken(){mdLog("tickets.temp_token_started",{realm,appId,tableId});const response=await mdFetch("https://api.quickbase.com/v1/auth/temporary/"+appId,{method:"GET",credentials:"include",headers:{"QB-Realm-Hostname":realm}});if(!response.ok)throw new Error("Quickbase temporary token request failed with status "+response.status);const data=await response.json();const token=data.temporaryAuthorization||data.token;if(!token)throw new Error("Quickbase did not return a temporary token");mdLog("tickets.temp_token_received",{appId,expiresInMinutes:5});return token}async function load(){try{const token=await getTempToken();mdLog("tickets.query_started",{appId,tableId});const response=await mdFetch("https://api.quickbase.com/v1/records/query",{method:"POST",headers:{"Authorization":"QB-TEMP-TOKEN "+token,"QB-Realm-Hostname":realm,"Content-Type":"application/json"},body:JSON.stringify({from:tableId,select:[fields.rid,fields.app,fields.submitter,fields.issue],options:{top:100,sortBy:[{fieldId:fields.rid,order:"DESC"}]}})});if(!response.ok)throw new Error("Quickbase record query failed with status "+response.status);const data=await response.json();tickets=(data.data||[]).map(normalize).filter(t=>t.rid);status.textContent=tickets.length+" tickets loaded from Quickbase.";mdLog("tickets.loaded",{total:tickets.length});render()}catch(error){console.error("[Morning Dashboard]",{event:"tickets.load_failed",path:location.pathname,error:error.message||String(error)});status.textContent="Could not load tickets. Open this dashboard after signing into Quickbase, or host it as a Quickbase code page / POSTTempToken target if browser auth is blocked.";listEl.innerHTML='<div class="empty">Quickbase ticket access is unavailable from this browser session.</div>'}}function render(){listEl.innerHTML=tickets.map(t=>'<article class="card ticket-card" data-rid="'+esc(t.rid)+'"><span class="pill normal">Record '+esc(t.rid)+'</span><h3>'+esc(t.issue||"No issue text")+'</h3><div class="ticket-fields"><div class="ticket-field"><span class="meta">App</span>'+esc(t.app||"")+'</div><div class="ticket-field"><span class="meta">Submitter</span>'+esc(t.submitter||"")+'</div></div></article>').join("")||'<div class="empty">No tickets found.</div>'}function openTicket(t){document.getElementById("ticket-title").textContent="Ticket "+t.rid;detail.innerHTML='<div><span class="meta">Issue</span><p>'+esc(t.issue||"")+'</p></div><div class="row"><div><span class="meta">App</span><p>'+esc(t.app||"")+'</p></div><div><span class="meta">Submitter</span><p>'+esc(t.submitter||"")+'</p></div></div><a class="refresh" href="'+esc(t.url)+'" target="_blank" rel="noreferrer">Open record in Quickbase</a>';modal.classList.add("open");mdLog("tickets.detail_opened",{rid:t.rid})}function close(){modal.classList.remove("open");mdLog("tickets.detail_closed")}listEl.addEventListener("click",e=>{const card=e.target.closest(".ticket-card");if(!card)return;const ticket=tickets.find(t=>t.rid===card.dataset.rid);if(ticket)openTicket(ticket)});document.getElementById("ticket-close").onclick=close;modal.addEventListener("click",e=>{if(e.target===modal)close()});load();
-`;
-  return layout("Quickbase Tickets", "T", "Tickets", body, script);
-}
-
-async function releasesPage(): Promise<string> {
-  const body = `<section class="panel"><h2>Release Notes</h2><p id="release-status">Loading Quickbase release records...</p><div class="filters"><button class="pill filter-pill active" data-filter="all">All</button><button class="pill filter-pill new" data-filter="new">New</button><button class="pill filter-pill upcoming" data-filter="upcoming">Upcoming</button><button class="pill filter-pill released" data-filter="released">Released</button></div><a href="${QUICKBASE_RELEASES_URL}" target="_blank" rel="noreferrer">Open source app</a></section><section class="grid two" id="release-list"></section>`;
-  const script = listPageScript("/api/quickbase-releases", "release");
-  return layout("Quickbase Releases", "R", "Releases", body, script);
-}
-
-async function companyPage(): Promise<string> {
-  const body = `<section class="panel"><h2>Company News</h2><p id="company-status">Loading company news...</p><a href="${VTG_NEWS_URL}" target="_blank" rel="noreferrer">Open source page</a></section><section class="grid two company-list" id="company-list"></section>`;
-  const script = listPageScript("/api/company-news", "company");
-  return layout("Company News", "C", "Company", body, script);
-}
-
-function listPageScript(api: string, kind: "release" | "company"): string {
-  if (kind === "release") {
-    return `
-let records=[],filter="all";function statusOf(r){return String(r.status||"").toLowerCase().includes("released")?"released":"upcoming"}function show(r){if(filter==="all")return true;if(filter==="new")return r.isNew;if(filter==="released")return statusOf(r)==="released";return statusOf(r)==="upcoming"}function render(){const shown=records.filter(show);document.getElementById("release-list").innerHTML=shown.map(r=>'<article class="card release-card"><span class="pill '+statusOf(r)+'">'+esc(statusOf(r))+'</span>'+(r.isNew?'<span class="pill new">New</span>':"")+'<h3>'+esc(r.feature||r.summary||"Quickbase release")+'</h3><div class="meta">'+esc(r.area||"")+'</div><p>'+esc(r.summary||"")+'</p><a href="'+esc(safeUrl(r.url))+'" target="_blank" rel="noreferrer">View note</a></article>').join("")||'<div class="empty">No release notes match this filter.</div>';mdLog("releases.rendered",{filter,count:shown.length,total:records.length})}document.querySelectorAll(".filters button").forEach(b=>b.onclick=()=>{filter=b.dataset.filter;mdLog("releases.filter_changed",{filter});document.querySelectorAll(".filters button").forEach(x=>x.classList.toggle("active",x===b));render()});mdFetch("${api}").then(r=>r.json()).then(d=>{records=d.records||[];const n=records.filter(r=>r.isNew).length;document.getElementById("release-status").textContent=records.length+" release notes loaded / "+n+" new. Updated "+d.generated+".";mdLog("releases.loaded",{total:records.length,newCount:n});render()});
-`;
-  }
-  return `
-mdFetch("${api}").then(r=>r.json()).then(d=>{const records=d.records||[];document.getElementById("company-status").textContent=records.length+" company stories loaded. Updated "+d.generated+".";document.getElementById("company-list").innerHTML=records.map(r=>'<article class="card company-card">'+(r.isNew?'<span class="pill new">New</span>':"")+'<div class="meta">'+esc(r.date)+'</div><h3>'+esc(r.title)+'</h3><p>'+esc(r.summary)+'</p><a href="'+esc(safeUrl(r.url))+'" target="_blank" rel="noreferrer">Read more</a></article>').join("");mdLog("company.loaded",{total:records.length,newCount:records.filter(r=>r.isNew).length})});
-`;
-}
-
-function metricsPage(): string {
-  const body = `<section class="panel"><h2>Live Instrumentation</h2><p id="metrics-status">Loading...</p><button class="refresh" id="refresh">Refresh</button></section><section class="grid" id="gauges"></section><section class="grid two" id="stats"></section><section class="grid two" id="bars"></section><section class="grid two"><div class="card"><p class="meta">Recent Events</p><div id="events"></div></div></section>`;
-  const script = `
-function fmt(v){return Math.round(Number(v||0)).toLocaleString()}
-function gauge(l,v,max){const pct=max?Math.max(0,Math.min(100,Number(v||0)/max*100)):0;return'<article class="card"><div class="gauge" style="--pct:'+pct.toFixed(1)+'"><strong>'+fmt(v)+'</strong></div><p class="meta" style="text-align:center;margin-top:8px">'+l+'</p></article>'}
-function stat(l,v,unit){return'<article class="card"><p class="meta">'+l+'</p><h2>'+fmt(v)+(unit?'<span style="font-size:1rem;font-weight:500"> '+esc(unit)+'</span>':'')+'</h2></article>'}
-function bars(title,rows){const max=Math.max(1,...rows.map(r=>r[1]||0));return'<article class="card"><p class="meta">'+title+'</p><div class="bars">'+rows.map(([l,v])=>'<div class="bar-row"><span>'+esc(String(l))+'</span><div class="bar-track"><div class="bar-fill" style="width:'+Math.round((v||0)/max*100)+'%"></div></div><span class="bar-val">'+fmt(v)+'</span></div>').join('')+'</div></article>'}
-async function load(){
-  const d=await(await mdFetch("/api/metrics")).json();
-  const gmax=Math.max(100,d.page_loads||0,d.unique_stories_served||0,d.unique_release_notes_loaded||0,d.unique_company_news_loaded||0);
-  document.getElementById("gauges").innerHTML=[gauge("Page Loads",d.page_loads,gmax),gauge("Unique Stories",d.unique_stories_served,gmax),gauge("Unique Releases",d.unique_release_notes_loaded,gmax),gauge("Unique Company News",d.unique_company_news_loaded,gmax)].join("");
-  const avg=d.response_samples?Math.round((d.last_response_ms||0)/d.response_samples):0;
-  document.getElementById("stats").innerHTML=[stat("Avg Load",avg,"ms"),stat("Last Load",d.last_load_ms,"ms"),stat("API Samples",d.response_samples),stat("News Refreshes",d.news_refreshes),stat("Unique Stories",d.unique_stories_served),stat("Unique Releases",d.unique_release_notes_loaded),stat("Unique Company News",d.unique_company_news_loaded),stat("Page Loads",d.page_loads)].join("");
-  document.getElementById("bars").innerHTML=[
-    bars("Page Loads",[["News",d["page:News"]],["Tickets",d["page:Tickets"]],["Releases",d["page:Releases"]],["Company",d["page:Company"]],["Metrics",d["page:Metrics"]]]),
-    bars("API Calls",[["QB Status",d["api:quickbase-status"]],["Company",d["api:company-news"]],["Releases",d["api:quickbase-releases"]],["Metrics",d["api:metrics"]]])
-  ].join("");
-  document.getElementById("events").innerHTML=(d.events||[]).map(e=>'<p><strong>'+esc(e.label)+'</strong> <span class="meta">'+fmt(e.amount)+' / '+esc(e.created_at)+'</span></p>').join("")||'<p class="meta">No events yet.</p>';
-  document.getElementById("metrics-status").textContent="Updated "+d.generated+".";mdLog("metrics.loaded",{pageLoads:d.page_loads||0,uniqueStories:d.unique_stories_served||0});
-}
-document.getElementById("refresh").onclick=()=>{mdLog("metrics.manual_refresh");load()};load();setInterval(()=>{mdLog("metrics.auto_refresh");load()},60000);
-`;
-  return layout("Dashboard Metrics", "M", "Metrics", body, script);
+</html>`);
 }
 
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const started = performance.now();
   const url = new URL(request.url);
-  const path = url.pathname === "/" || url.pathname === "/dashboard.html" ? "/news.html" :
+  const path = url.pathname === "/dashboard.html" ? "/" :
     url.pathname === "/tasks.html" ? "/tickets.html" :
     url.pathname === "/releases.html" ? "/quickbase-releases.html" :
     url.pathname === "/company.html" ? "/company-news.html" : url.pathname;
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders(request) });
+  }
 
   if (path !== url.pathname) {
     logInfo("request.redirect", { from: url.pathname, to: path });
     return Response.redirect(new URL(path, url.origin).toString(), 302);
   }
 
-  if (path === "/api/quickbase-status") {
+  if (path === "/api/news" && request.method === "GET") {
+    ctx.waitUntil(metric(env, "api:news"));
+    return json(request, await cachedStories(env), 200, 120);
+  }
+  if (path === "/api/quickbase-status" && request.method === "GET") {
     ctx.waitUntil(metric(env, "api:quickbase-status"));
-    return json(await quickbaseStatus(), 200, 300);
+    return json(request, await quickbaseStatus(), 200, 300);
   }
-  if (path === "/api/quickbase-releases") {
+  if (path === "/api/quickbase-releases" && request.method === "GET") {
     await metric(env, "api:quickbase-releases");
-    return json(await quickbaseReleases(env), 200, 600);
+    return json(request, await quickbaseReleases(env), 200, 600);
   }
-  if (path === "/api/company-news") {
+  if (path === "/api/company-news" && request.method === "GET") {
     await metric(env, "api:company-news");
-    return json(await companyNews(env), 200, 600);
+    return json(request, await companyNews(env), 200, 600);
   }
-  if (path === "/api/metrics") {
+  if (path === "/api/metrics" && request.method === "GET") {
     ctx.waitUntil(metric(env, "api:metrics"));
-    return json(await metrics(env), 200, 30);
+    return json(request, await metrics(env), 200, 30);
+  }
+  if (path === "/api/page-load" && request.method === "POST") {
+    return trackExternalPage(request, env, started);
   }
   if (path === "/api/refresh-news" && request.method === "POST") {
     const denied = requireAdminToken(request, env);
@@ -551,21 +460,16 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       logWarn("news.refresh_denied", { method: request.method, path });
       return denied;
     }
-    return json({ stories: await refreshNews(env), refreshed: displayStamp() });
+    return json(request, { stories: await refreshNews(env), refreshed: displayStamp() });
   }
 
-  let body: string | null = null;
-  if (path === "/news.html") body = await newsPage(env);
-  if (path === "/tickets.html") body = await ticketsPage();
-  if (path === "/quickbase-releases.html") body = await releasesPage();
-  if (path === "/company-news.html") body = await companyPage();
-  if (path === "/metrics.html") body = metricsPage();
-  if (body) {
-    ctx.waitUntil(trackPage(env, path, performance.now() - started));
-    return htmlResponse(body);
+  if (path === "/" || path === "/news.html" || path === "/tickets.html" || path === "/quickbase-releases.html" || path === "/company-news.html" || path === "/metrics.html") {
+    ctx.waitUntil(trackPage(env, path === "/" ? "/news.html" : path, performance.now() - started));
+    return dashboardLanding(env);
   }
+
   logWarn("request.not_found", { method: request.method, path });
-  return new Response("Not found", { status: 404 });
+  return json(request, { ok: false, error: "Not found" }, 404);
 }
 
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -586,7 +490,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
       path: url.pathname,
       elapsedMs: Math.round(performance.now() - started)
     });
-    return json({ ok: false, error: "Internal server error" }, 500);
+    return json(request, { ok: false, error: "Internal server error" }, 500);
   }
 }
 
