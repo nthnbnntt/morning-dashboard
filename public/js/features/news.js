@@ -1,4 +1,5 @@
 import { empty, esc, getJson, hydrateCommonStatus, qs, qsa, safeUrl, shorten } from "./utils.js";
+import { loadTickets, statusClass, statusCounts } from "./tickets.js";
 
 function storyCard(story, index) {
   return `
@@ -40,6 +41,33 @@ function enableSourceFilters(root) {
   });
 }
 
+function ticketStatusSummary(tickets) {
+  const counts = Array.from(statusCounts(tickets).entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return `
+    <span class="meta">Tickets</span>
+    <div class="ticket-summary compact" aria-label="Tickets by status">
+      ${counts.map(([status, count]) => `
+        <div class="ticket-summary-item">
+          <span class="pill ${esc(statusClass(status))}">${esc(status)}</span>
+          <strong>${count.toLocaleString()}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function hydrateTicketSummary() {
+  const card = qs("#news-ticket-summary");
+  if (!card) return;
+  try {
+    const tickets = await loadTickets();
+    card.innerHTML = ticketStatusSummary(tickets);
+  } catch (err) {
+    card.innerHTML = '<span class="meta">Tickets</span><h2>Unavailable</h2>';
+  }
+}
+
 export async function renderNews(view) {
   const payload = await getJson(`/api/news?refresh=1&t=${Date.now()}`);
   const stories = payload.stories || [];
@@ -57,7 +85,7 @@ export async function renderNews(view) {
         <span class="meta" id="qb-detail">Checking status...</span>
         <a id="qb-link" class="text-link" href="https://quickbasestatus.status.page/#!/" target="_blank" rel="noreferrer">Open</a>
       </div>
-      <a class="card" href="#tickets"><span class="meta">Tickets</span><h2>Live</h2></a>
+      <a class="card ticket-news-card" id="news-ticket-summary" href="#tickets"><span class="meta">Tickets</span><h2>Loading...</h2></a>
       <div class="source-list">${sourceButtons(stories)}</div>
     </section>
     ${lead ? `
@@ -73,5 +101,5 @@ export async function renderNews(view) {
     </section>
   `;
   enableSourceFilters(view);
-  await hydrateCommonStatus();
+  await Promise.all([hydrateCommonStatus(), hydrateTicketSummary()]);
 }

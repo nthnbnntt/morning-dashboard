@@ -36,7 +36,7 @@ function formatTicketDate(value) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function statusClass(status) {
+export function statusClass(status) {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized.includes("urgent") || normalized.includes("late") || normalized.includes("blocked")) return "high";
   if (normalized.includes("new") || normalized.includes("open")) return "normal";
@@ -44,7 +44,7 @@ function statusClass(status) {
   return "released";
 }
 
-function statusCounts(tickets) {
+export function statusCounts(tickets) {
   return tickets.reduce((counts, ticket) => {
     const status = String(ticket.status || "No status").trim() || "No status";
     counts.set(status, (counts.get(status) || 0) + 1);
@@ -62,6 +62,18 @@ function ticketStatusSummary(tickets) {
           <span class="pill ${esc(statusClass(status))}">${esc(status)}</span>
           <strong>${count.toLocaleString()}</strong>
         </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function ticketStatusFilters(tickets) {
+  const statuses = Array.from(statusCounts(tickets).keys()).sort((a, b) => a.localeCompare(b));
+  return `
+    <div class="filters ticket-filters" aria-label="Filter tickets by status">
+      <button class="pill filter-pill active" type="button" data-filter="all">All</button>
+      ${statuses.map((status) => `
+        <button class="pill filter-pill ${esc(statusClass(status))}" type="button" data-filter="${esc(status)}">${esc(status)}</button>
       `).join("")}
     </div>
   `;
@@ -87,7 +99,7 @@ async function getTemporaryToken() {
   return token;
 }
 
-async function loadTickets() {
+export async function loadTickets() {
   const cfg = config();
   const fields = cfg.quickbaseTicketFields || {};
   const token = await getTemporaryToken();
@@ -158,7 +170,7 @@ export async function renderTickets(view) {
     <section class="panel">
       <h2>Quickbase Tickets</h2>
       <p id="ticket-status">Connecting to Quickbase with your browser session...</p>
-      <div id="ticket-summary"></div>
+      <div id="ticket-filters"></div>
       <a href="${esc(tableUrl)}" target="_blank" rel="noreferrer">Open ticket table</a>
     </section>
     <section class="ticket-list" id="ticket-list"></section>
@@ -173,8 +185,27 @@ export async function renderTickets(view) {
   try {
     const tickets = await loadTickets();
     qs("#ticket-status").textContent = `${tickets.length} tickets loaded from Quickbase.`;
-    qs("#ticket-summary").innerHTML = ticketStatusSummary(tickets);
-    qs("#ticket-list").innerHTML = tickets.map(ticketCard).join("") || empty("No tickets found.");
+    qs("#ticket-filters").innerHTML = ticketStatusFilters(tickets);
+    let filter = "all";
+
+    function shown(ticket) {
+      return filter === "all" || ticket.status === filter;
+    }
+
+    function renderList() {
+      const visibleTickets = tickets.filter(shown);
+      qs("#ticket-list").innerHTML = visibleTickets.map(ticketCard).join("") || empty("No tickets match this filter.");
+    }
+
+    qsa(".ticket-filters button", view).forEach((button) => {
+      button.addEventListener("click", () => {
+        filter = button.dataset.filter;
+        qsa(".ticket-filters button", view).forEach((item) => item.classList.toggle("active", item === button));
+        renderList();
+      });
+    });
+
+    renderList();
     qs("#ticket-list").addEventListener("click", (event) => {
       const card = event.target.closest(".ticket-card");
       const ticket = tickets.find((item) => item.rid === card?.dataset.rid);

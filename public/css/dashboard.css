@@ -413,6 +413,15 @@ h1 {
   gap: 10px;
 }
 
+.ticket-news-card {
+  display: grid;
+  gap: 12px;
+}
+
+.ticket-summary.compact {
+  gap: 8px;
+}
+
 .ticket-summary-item {
   display: flex;
   align-items: center;
@@ -429,6 +438,10 @@ h1 {
 
 .ticket-summary-item strong {
   font-size: 1.05rem;
+}
+
+.ticket-summary.compact .ticket-summary-item {
+  padding: 6px 8px;
 }
 
 .ticket-card h3 {

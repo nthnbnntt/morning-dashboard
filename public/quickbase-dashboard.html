@@ -4,14 +4,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Morning Dashboard</title>
-  <link rel="stylesheet" href="https://nthnbnntt.github.io/morning-dashboard/css/dashboard.css?v=20260528-5">
 </head>
 <body>
   <div id="dashboard-root"></div>
   <script>
     window.MORNING_DASHBOARD_CONFIG = window.MORNING_DASHBOARD_CONFIG || {};
+    (function loadMorningDashboard() {
+      var assetBase = "https://nthnbnntt.github.io/morning-dashboard";
+      var cacheKey = Date.now();
+
+      function withCache(path) {
+        return assetBase + path + "?v=" + cacheKey;
+      }
+
+      var css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = withCache("/css/dashboard.css");
+      document.head.appendChild(css);
+
+      var config = document.createElement("script");
+      config.src = withCache("/js/config.js");
+      config.onload = function () {
+        var app = document.createElement("script");
+        app.src = withCache("/js/dashboard.bundle.js");
+        document.body.appendChild(app);
+      };
+      document.body.appendChild(config);
+    })();
   </script>
-  <script src="https://nthnbnntt.github.io/morning-dashboard/js/config.js?v=20260528-5"></script>
-  <script src="https://nthnbnntt.github.io/morning-dashboard/js/dashboard.bundle.js?v=20260528-5"></script>
 </body>
 </html>

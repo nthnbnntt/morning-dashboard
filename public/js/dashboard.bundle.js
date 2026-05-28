@@ -28,7 +28,7 @@ var MorningDashboard = (() => {
   function qs(selector, root = document) {
     return root.querySelector(selector);
   }
-  function qsa(selector, root = document) {
+  function qsa2(selector, root = document) {
     return Array.from(root.querySelectorAll(selector));
   }
   function mdLog(event, fields = {}) {
@@ -234,6 +234,197 @@ var MorningDashboard = (() => {
     await loadMetrics(view);
   }
 
+  // public/js/features/tickets.js
+  function cellValue(cell) {
+    const value = cell && Object.prototype.hasOwnProperty.call(cell, "value") ? cell.value : cell;
+    if (Array.isArray(value)) return value.map(cellValue).filter(Boolean).join(", ");
+    if (value && typeof value === "object") {
+      return value.fullName || value.name || value.email || value.label || value.id || JSON.stringify(value);
+    }
+    return value == null ? "" : String(value);
+  }
+  function recordUrl(ticket) {
+    const cfg = config();
+    return `https://${cfg.quickbaseRealm}/nav/app/${cfg.quickbaseTicketsApp}/table/${cfg.quickbaseTicketsTable}/action/dr?rid=${encodeURIComponent(ticket.rid)}`;
+  }
+  function normalizeTicket(row) {
+    const fields = config().quickbaseTicketFields || {};
+    const rid = cellValue(row[String(fields.rid)]);
+    return {
+      rid,
+      date: cellValue(row[String(fields.date)]),
+      app: cellValue(row[String(fields.app)]),
+      type: cellValue(row[String(fields.type)]),
+      status: cellValue(row[String(fields.status)]),
+      submitter: cellValue(row[String(fields.submitter)]),
+      issue: cellValue(row[String(fields.issue)]),
+      url: recordUrl({ rid })
+    };
+  }
+  function formatTicketDate(value) {
+    if (!value) return "No date";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" });
+  }
+  function statusClass(status) {
+    const normalized = String(status || "").trim().toLowerCase();
+    if (normalized.includes("urgent") || normalized.includes("late") || normalized.includes("blocked")) return "high";
+    if (normalized.includes("new") || normalized.includes("open")) return "normal";
+    if (normalized.includes("progress") || normalized.includes("pending")) return "low";
+    return "released";
+  }
+  function statusCounts(tickets) {
+    return tickets.reduce((counts, ticket) => {
+      const status = String(ticket.status || "No status").trim() || "No status";
+      counts.set(status, (counts.get(status) || 0) + 1);
+      return counts;
+    }, /* @__PURE__ */ new Map());
+  }
+  function ticketStatusFilters(tickets) {
+    const statuses = Array.from(statusCounts(tickets).keys()).sort((a, b) => a.localeCompare(b));
+    return `
+    <div class="filters ticket-filters" aria-label="Filter tickets by status">
+      <button class="pill filter-pill active" type="button" data-filter="all">All</button>
+      ${statuses.map((status) => `
+        <button class="pill filter-pill ${esc(statusClass(status))}" type="button" data-filter="${esc(status)}">${esc(status)}</button>
+      `).join("")}
+    </div>
+  `;
+  }
+  async function getTemporaryToken() {
+    const cfg = config();
+    mdLog("tickets.temp_token_started", {
+      realm: cfg.quickbaseRealm,
+      appId: cfg.quickbaseTicketsApp,
+      tableId: cfg.quickbaseTicketsTable,
+      tokenDbid: cfg.quickbaseTicketTokenDbid || cfg.quickbaseTicketsTable
+    });
+    const response = await mdFetch(`https://api.quickbase.com/v1/auth/temporary/${cfg.quickbaseTicketTokenDbid || cfg.quickbaseTicketsTable}`, {
+      method: "GET",
+      credentials: "include",
+      headers: { "QB-Realm-Hostname": cfg.quickbaseRealm }
+    });
+    if (!response.ok) throw new Error(`Quickbase temporary token request failed with status ${response.status}`);
+    const data = await response.json();
+    const token = data.temporaryAuthorization || data.token;
+    if (!token) throw new Error("Quickbase did not return a temporary token");
+    return token;
+  }
+  async function loadTickets() {
+    const cfg = config();
+    const fields = cfg.quickbaseTicketFields || {};
+    const token = await getTemporaryToken();
+    const response = await mdFetch("https://api.quickbase.com/v1/records/query", {
+      method: "POST",
+      headers: {
+        "Authorization": `QB-TEMP-TOKEN ${token}`,
+        "QB-Realm-Hostname": cfg.quickbaseRealm,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: cfg.quickbaseTicketsTable,
+        select: [fields.rid, fields.date, fields.app, fields.type, fields.status, fields.submitter, fields.issue],
+        where: `{${fields.status}.XEX.'CLOSED'}`,
+        sortBy: [{ fieldId: fields.date, order: "DESC" }],
+        options: {
+          top: 100
+        }
+      })
+    });
+    if (!response.ok) throw new Error(`Quickbase record query failed with status ${response.status}`);
+    const data = await response.json();
+    return (data.data || []).map(normalizeTicket).filter((ticket) => ticket.rid);
+  }
+  function ticketCard(ticket) {
+    return `
+    <article class="card ticket-card" data-rid="${esc(ticket.rid)}">
+      <div class="ticket-card-head">
+        <span class="ticket-id">Ticket #${esc(ticket.rid)}</span>
+        <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
+      </div>
+      <h3>${esc(ticket.app || "Unassigned app")}</h3>
+      <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
+      <div class="ticket-meta-grid">
+        <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
+        <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
+        <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
+        <div><span class="meta">Ticket</span>#${esc(ticket.rid)}</div>
+      </div>
+    </article>
+  `;
+  }
+  function openTicket(ticket) {
+    qs("#ticket-title").textContent = ticket.app || "Unassigned app";
+    qs("#ticket-detail").innerHTML = `
+    <div class="ticket-detail-summary">
+      <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
+      <span class="ticket-id">Ticket #${esc(ticket.rid)}</span>
+      <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
+    </div>
+    <div class="ticket-meta-grid">
+      <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
+      <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
+      <div><span class="meta">Ticket</span>#${esc(ticket.rid)}</div>
+      <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
+    </div>
+    <a class="refresh" href="${esc(safeUrl(ticket.url))}" target="_blank" rel="noreferrer">Open record in Quickbase</a>
+  `;
+    qs("#ticket-modal").classList.add("open");
+  }
+  async function renderTickets(view) {
+    const cfg = config();
+    const tableUrl = `https://${cfg.quickbaseRealm}/nav/app/${cfg.quickbaseTicketsApp}/table/${cfg.quickbaseTicketsTable}/action/td`;
+    view.innerHTML = `
+    <section class="panel">
+      <h2>Quickbase Tickets</h2>
+      <p id="ticket-status">Connecting to Quickbase with your browser session...</p>
+      <div id="ticket-filters"></div>
+      <a href="${esc(tableUrl)}" target="_blank" rel="noreferrer">Open ticket table</a>
+    </section>
+    <section class="ticket-list" id="ticket-list"></section>
+    <div class="modal" id="ticket-modal">
+      <div class="modal-panel">
+        <div class="modal-head"><h2 id="ticket-title">Ticket</h2><button id="ticket-close" type="button">Close</button></div>
+        <div id="ticket-detail" class="ticket-detail"></div>
+      </div>
+    </div>
+  `;
+    try {
+      let shown2 = function(ticket) {
+        return filter === "all" || ticket.status === filter;
+      }, renderList2 = function() {
+        const visibleTickets = tickets.filter(shown2);
+        qs("#ticket-list").innerHTML = visibleTickets.map(ticketCard).join("") || empty("No tickets match this filter.");
+      };
+      var shown = shown2, renderList = renderList2;
+      const tickets = await loadTickets();
+      qs("#ticket-status").textContent = `${tickets.length} tickets loaded from Quickbase.`;
+      qs("#ticket-filters").innerHTML = ticketStatusFilters(tickets);
+      let filter = "all";
+      qsa(".ticket-filters button", view).forEach((button) => {
+        button.addEventListener("click", () => {
+          filter = button.dataset.filter;
+          qsa(".ticket-filters button", view).forEach((item) => item.classList.toggle("active", item === button));
+          renderList2();
+        });
+      });
+      renderList2();
+      qs("#ticket-list").addEventListener("click", (event) => {
+        const card = event.target.closest(".ticket-card");
+        const ticket = tickets.find((item) => item.rid === card?.dataset.rid);
+        if (ticket) openTicket(ticket);
+      });
+    } catch (err) {
+      qs("#ticket-status").textContent = "Could not load tickets from this browser session.";
+      qs("#ticket-list").innerHTML = error(err?.message || "Quickbase ticket access is unavailable.");
+    }
+    qs("#ticket-close").addEventListener("click", () => qs("#ticket-modal").classList.remove("open"));
+    qs("#ticket-modal").addEventListener("click", (event) => {
+      if (event.target === qs("#ticket-modal")) qs("#ticket-modal").classList.remove("open");
+    });
+  }
+
   // public/js/features/news.js
   function storyCard(story, index) {
     return `
@@ -255,14 +446,14 @@ var MorningDashboard = (() => {
     const active = /* @__PURE__ */ new Set();
     function apply() {
       const has = active.size > 0;
-      qsa(".story[data-source]", root).forEach((card) => {
+      qsa2(".story[data-source]", root).forEach((card) => {
         card.classList.toggle("hidden", has && !active.has(card.dataset.source));
       });
-      qsa(".source-list button", root).forEach((button) => {
+      qsa2(".source-list button", root).forEach((button) => {
         button.classList.toggle("active", active.has(button.dataset.source));
       });
     }
-    qsa(".source-list button", root).forEach((button) => {
+    qsa2(".source-list button", root).forEach((button) => {
       button.addEventListener("click", () => {
         const source = button.dataset.source;
         if (active.has(source)) active.delete(source);
@@ -271,6 +462,30 @@ var MorningDashboard = (() => {
         qs("#news-start", root)?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     });
+  }
+  function ticketStatusSummary(tickets) {
+    const counts = Array.from(statusCounts(tickets).entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return `
+    <span class="meta">Tickets</span>
+    <div class="ticket-summary compact" aria-label="Tickets by status">
+      ${counts.map(([status, count]) => `
+        <div class="ticket-summary-item">
+          <span class="pill ${esc(statusClass(status))}">${esc(status)}</span>
+          <strong>${count.toLocaleString()}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+  }
+  async function hydrateTicketSummary() {
+    const card = qs("#news-ticket-summary");
+    if (!card) return;
+    try {
+      const tickets = await loadTickets();
+      card.innerHTML = ticketStatusSummary(tickets);
+    } catch (err) {
+      card.innerHTML = '<span class="meta">Tickets</span><h2>Unavailable</h2>';
+    }
   }
   async function renderNews(view) {
     const payload = await getJson(`/api/news?refresh=1&t=${Date.now()}`);
@@ -288,7 +503,7 @@ var MorningDashboard = (() => {
         <span class="meta" id="qb-detail">Checking status...</span>
         <a id="qb-link" class="text-link" href="https://quickbasestatus.status.page/#!/" target="_blank" rel="noreferrer">Open</a>
       </div>
-      <a class="card" href="#tickets"><span class="meta">Tickets</span><h2>Live</h2></a>
+      <a class="card ticket-news-card" id="news-ticket-summary" href="#tickets"><span class="meta">Tickets</span><h2>Loading...</h2></a>
       <div class="source-list">${sourceButtons(stories)}</div>
     </section>
     ${lead ? `
@@ -304,7 +519,7 @@ var MorningDashboard = (() => {
     </section>
   `;
     enableSourceFilters(view);
-    await hydrateCommonStatus();
+    await Promise.all([hydrateCommonStatus(), hydrateTicketSummary()]);
   }
 
   // public/js/features/navigation.js
@@ -446,192 +661,14 @@ var MorningDashboard = (() => {
     }
     const newCount = records.filter((record) => record.isNew).length;
     view.querySelector("#release-status").textContent = `${records.length} release notes loaded / ${newCount} new. Updated ${payload.generated}.`;
-    qsa(".filters button", view).forEach((button) => {
+    qsa2(".filters button", view).forEach((button) => {
       button.addEventListener("click", () => {
         filter = button.dataset.filter;
-        qsa(".filters button", view).forEach((item) => item.classList.toggle("active", item === button));
+        qsa2(".filters button", view).forEach((item) => item.classList.toggle("active", item === button));
         renderList();
       });
     });
     renderList();
-  }
-
-  // public/js/features/tickets.js
-  function cellValue(cell) {
-    const value = cell && Object.prototype.hasOwnProperty.call(cell, "value") ? cell.value : cell;
-    if (Array.isArray(value)) return value.map(cellValue).filter(Boolean).join(", ");
-    if (value && typeof value === "object") {
-      return value.fullName || value.name || value.email || value.label || value.id || JSON.stringify(value);
-    }
-    return value == null ? "" : String(value);
-  }
-  function recordUrl(ticket) {
-    const cfg = config();
-    return `https://${cfg.quickbaseRealm}/nav/app/${cfg.quickbaseTicketsApp}/table/${cfg.quickbaseTicketsTable}/action/dr?rid=${encodeURIComponent(ticket.rid)}`;
-  }
-  function normalizeTicket(row) {
-    const fields = config().quickbaseTicketFields || {};
-    const rid = cellValue(row[String(fields.rid)]);
-    return {
-      rid,
-      date: cellValue(row[String(fields.date)]),
-      app: cellValue(row[String(fields.app)]),
-      type: cellValue(row[String(fields.type)]),
-      status: cellValue(row[String(fields.status)]),
-      submitter: cellValue(row[String(fields.submitter)]),
-      issue: cellValue(row[String(fields.issue)]),
-      url: recordUrl({ rid })
-    };
-  }
-  function formatTicketDate(value) {
-    if (!value) return "No date";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" });
-  }
-  function statusClass(status) {
-    const normalized = String(status || "").trim().toLowerCase();
-    if (normalized.includes("urgent") || normalized.includes("late") || normalized.includes("blocked")) return "high";
-    if (normalized.includes("new") || normalized.includes("open")) return "normal";
-    if (normalized.includes("progress") || normalized.includes("pending")) return "low";
-    return "released";
-  }
-  function statusCounts(tickets) {
-    return tickets.reduce((counts, ticket) => {
-      const status = String(ticket.status || "No status").trim() || "No status";
-      counts.set(status, (counts.get(status) || 0) + 1);
-      return counts;
-    }, /* @__PURE__ */ new Map());
-  }
-  function ticketStatusSummary(tickets) {
-    const counts = Array.from(statusCounts(tickets).entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return `
-    <div class="ticket-summary" aria-label="Tickets by status">
-      ${counts.map(([status, count]) => `
-        <div class="ticket-summary-item">
-          <span class="pill ${esc(statusClass(status))}">${esc(status)}</span>
-          <strong>${count.toLocaleString()}</strong>
-        </div>
-      `).join("")}
-    </div>
-  `;
-  }
-  async function getTemporaryToken() {
-    const cfg = config();
-    mdLog("tickets.temp_token_started", {
-      realm: cfg.quickbaseRealm,
-      appId: cfg.quickbaseTicketsApp,
-      tableId: cfg.quickbaseTicketsTable,
-      tokenDbid: cfg.quickbaseTicketTokenDbid || cfg.quickbaseTicketsTable
-    });
-    const response = await mdFetch(`https://api.quickbase.com/v1/auth/temporary/${cfg.quickbaseTicketTokenDbid || cfg.quickbaseTicketsTable}`, {
-      method: "GET",
-      credentials: "include",
-      headers: { "QB-Realm-Hostname": cfg.quickbaseRealm }
-    });
-    if (!response.ok) throw new Error(`Quickbase temporary token request failed with status ${response.status}`);
-    const data = await response.json();
-    const token = data.temporaryAuthorization || data.token;
-    if (!token) throw new Error("Quickbase did not return a temporary token");
-    return token;
-  }
-  async function loadTickets() {
-    const cfg = config();
-    const fields = cfg.quickbaseTicketFields || {};
-    const token = await getTemporaryToken();
-    const response = await mdFetch("https://api.quickbase.com/v1/records/query", {
-      method: "POST",
-      headers: {
-        "Authorization": `QB-TEMP-TOKEN ${token}`,
-        "QB-Realm-Hostname": cfg.quickbaseRealm,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        from: cfg.quickbaseTicketsTable,
-        select: [fields.rid, fields.date, fields.app, fields.type, fields.status, fields.submitter, fields.issue],
-        where: `{${fields.status}.XEX.'CLOSED'}`,
-        sortBy: [{ fieldId: fields.date, order: "DESC" }],
-        options: {
-          top: 100
-        }
-      })
-    });
-    if (!response.ok) throw new Error(`Quickbase record query failed with status ${response.status}`);
-    const data = await response.json();
-    return (data.data || []).map(normalizeTicket).filter((ticket) => ticket.rid);
-  }
-  function ticketCard(ticket) {
-    return `
-    <article class="card ticket-card" data-rid="${esc(ticket.rid)}">
-      <div class="ticket-card-head">
-        <span class="ticket-id">Ticket #${esc(ticket.rid)}</span>
-        <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
-      </div>
-      <h3>${esc(ticket.app || "Unassigned app")}</h3>
-      <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
-      <div class="ticket-meta-grid">
-        <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
-        <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
-        <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
-        <div><span class="meta">Ticket</span>#${esc(ticket.rid)}</div>
-      </div>
-    </article>
-  `;
-  }
-  function openTicket(ticket) {
-    qs("#ticket-title").textContent = ticket.app || "Unassigned app";
-    qs("#ticket-detail").innerHTML = `
-    <div class="ticket-detail-summary">
-      <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
-      <span class="ticket-id">Ticket #${esc(ticket.rid)}</span>
-      <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
-    </div>
-    <div class="ticket-meta-grid">
-      <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
-      <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
-      <div><span class="meta">Ticket</span>#${esc(ticket.rid)}</div>
-      <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
-    </div>
-    <a class="refresh" href="${esc(safeUrl(ticket.url))}" target="_blank" rel="noreferrer">Open record in Quickbase</a>
-  `;
-    qs("#ticket-modal").classList.add("open");
-  }
-  async function renderTickets(view) {
-    const cfg = config();
-    const tableUrl = `https://${cfg.quickbaseRealm}/nav/app/${cfg.quickbaseTicketsApp}/table/${cfg.quickbaseTicketsTable}/action/td`;
-    view.innerHTML = `
-    <section class="panel">
-      <h2>Quickbase Tickets</h2>
-      <p id="ticket-status">Connecting to Quickbase with your browser session...</p>
-      <div id="ticket-summary"></div>
-      <a href="${esc(tableUrl)}" target="_blank" rel="noreferrer">Open ticket table</a>
-    </section>
-    <section class="ticket-list" id="ticket-list"></section>
-    <div class="modal" id="ticket-modal">
-      <div class="modal-panel">
-        <div class="modal-head"><h2 id="ticket-title">Ticket</h2><button id="ticket-close" type="button">Close</button></div>
-        <div id="ticket-detail" class="ticket-detail"></div>
-      </div>
-    </div>
-  `;
-    try {
-      const tickets = await loadTickets();
-      qs("#ticket-status").textContent = `${tickets.length} tickets loaded from Quickbase.`;
-      qs("#ticket-summary").innerHTML = ticketStatusSummary(tickets);
-      qs("#ticket-list").innerHTML = tickets.map(ticketCard).join("") || empty("No tickets found.");
-      qs("#ticket-list").addEventListener("click", (event) => {
-        const card = event.target.closest(".ticket-card");
-        const ticket = tickets.find((item) => item.rid === card?.dataset.rid);
-        if (ticket) openTicket(ticket);
-      });
-    } catch (err) {
-      qs("#ticket-status").textContent = "Could not load tickets from this browser session.";
-      qs("#ticket-list").innerHTML = error(err?.message || "Quickbase ticket access is unavailable.");
-    }
-    qs("#ticket-close").addEventListener("click", () => qs("#ticket-modal").classList.remove("open"));
-    qs("#ticket-modal").addEventListener("click", (event) => {
-      if (event.target === qs("#ticket-modal")) qs("#ticket-modal").classList.remove("open");
-    });
   }
 
   // public/js/app.js
