@@ -48,6 +48,8 @@ type CompanyStory = {
   isNew: boolean;
 };
 
+type LogFields = Record<string, string | number | boolean | null | undefined>;
+
 const FEEDS: Array<[string, string]> = [
   ["NPR", "https://feeds.npr.org/1001/rss.xml"],
   ["BBC News", "https://feeds.bbci.co.uk/news/world/rss.xml"],
@@ -68,6 +70,25 @@ const pageNames: Record<string, string> = {
   "/company-news.html": "Company",
   "/metrics.html": "Metrics"
 };
+
+function logInfo(event: string, fields: LogFields = {}): void {
+  console.log(JSON.stringify({ level: "info", event, ...fields }));
+}
+
+function logWarn(event: string, fields: LogFields = {}): void {
+  console.warn(JSON.stringify({ level: "warn", event, ...fields }));
+}
+
+function logError(event: string, error: unknown, fields: LogFields = {}): void {
+  const details = error instanceof Error
+    ? { errorName: error.name, errorMessage: error.message }
+    : { errorMessage: String(error) };
+  console.error(JSON.stringify({ level: "error", event, ...fields, ...details }));
+}
+
+function taskRef(id: string): string {
+  return id ? id.slice(0, 8) : "unknown";
+}
 
 function escapeHtml(value: unknown): string {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -258,12 +279,17 @@ async function upsertTask(env: Env, input: Partial<Task>): Promise<Task[]> {
   if (!existing) {
     await metric(env, "tasks_created");
     await event(env, "Tasks created");
+    logInfo("task.created", { taskId: taskRef(id), priority: input.priority ?? "normal", hasDueDate: Boolean(input.due) });
   } else if (!existing.done && done) {
     await metric(env, "tasks_completed");
     await event(env, "Tasks completed");
+    logInfo("task.completed", { taskId: taskRef(id) });
   } else if (existing.done && !done) {
     await metric(env, "tasks_reopened");
     await event(env, "Tasks reopened");
+    logInfo("task.reopened", { taskId: taskRef(id) });
+  } else {
+    logInfo("task.updated", { taskId: taskRef(id), priority: input.priority ?? "normal", hasDueDate: Boolean(input.due) });
   }
   return tasks(env);
 }
@@ -273,6 +299,9 @@ async function deleteTask(env: Env, id: string): Promise<Task[]> {
   if ((result.meta.changes ?? 0) > 0) {
     await metric(env, "tasks_deleted");
     await event(env, "Tasks deleted");
+    logInfo("task.deleted", { taskId: taskRef(id) });
+  } else {
+    logWarn("task.delete_not_found", { taskId: taskRef(id) });
   }
   return tasks(env);
 }
@@ -283,10 +312,11 @@ function extractTag(block: string, tag: string): string {
 }
 
 async function fetchFeed(source: string, url: string): Promise<Story[]> {
+  const started = performance.now();
   try {
     const response = await fetch(url, { headers: { "user-agent": "morning-dashboard/2.0" } });
     const body = await response.text();
-    return [...body.matchAll(/<item\b[\s\S]*?<\/item>/gi)].slice(0, 6).map((match) => {
+    const stories = [...body.matchAll(/<item\b[\s\S]*?<\/item>/gi)].slice(0, 6).map((match) => {
       const block = match[0];
       return {
         source,
@@ -296,7 +326,10 @@ async function fetchFeed(source: string, url: string): Promise<Story[]> {
         published: extractTag(block, "pubDate")
       };
     }).filter((story) => story.title);
-  } catch {
+    logInfo("feed.fetch_success", { source, status: response.status, stories: stories.length, elapsedMs: Math.round(performance.now() - started) });
+    return stories;
+  } catch (error) {
+    logError("feed.fetch_failed", error, { source, elapsedMs: Math.round(performance.now() - started) });
     return [{
       source,
       title: `Could not fetch ${source}`,
@@ -308,6 +341,8 @@ async function fetchFeed(source: string, url: string): Promise<Story[]> {
 }
 
 async function refreshNews(env: Env): Promise<Story[]> {
+  const started = performance.now();
+  logInfo("news.refresh_started", { feeds: FEEDS.length });
   const groups = await Promise.all(FEEDS.map(([source, url]) => fetchFeed(source, url)));
   const stories = groups.flat().sort((a, b) =>
     Date.parse(b.published || "0") - Date.parse(a.published || "0")
@@ -318,20 +353,28 @@ async function refreshNews(env: Env): Promise<Story[]> {
   const added = await trackUnique(env, "story", stories.map((story) => story.url || story.title));
   await metric(env, "news_refreshes");
   if (added) await event(env, "New stories served", added);
+  logInfo("news.refresh_completed", { feeds: FEEDS.length, stories: stories.length, uniqueAdded: added, elapsedMs: Math.round(performance.now() - started) });
   return stories;
 }
 
 async function cachedStories(env: Env): Promise<Story[]> {
   const row = await env.DB.prepare("SELECT payload FROM news_cache WHERE id = 1").first<{ payload: string }>();
-  if (!row) return refreshNews(env);
+  if (!row) {
+    logWarn("news.cache_miss");
+    return refreshNews(env);
+  }
   try {
-    return JSON.parse(row.payload) as Story[];
-  } catch {
+    const stories = JSON.parse(row.payload) as Story[];
+    logInfo("news.cache_hit", { stories: stories.length });
+    return stories;
+  } catch (error) {
+    logError("news.cache_parse_failed", error);
     return refreshNews(env);
   }
 }
 
 async function quickbaseStatus(): Promise<Record<string, string>> {
+  const started = performance.now();
   try {
     const body = await (await fetch(QUICKBASE_STATUS_URL, { headers: { "user-agent": "morning-dashboard/2.0" } })).text();
     const plain = cleanText(body);
@@ -339,8 +382,10 @@ async function quickbaseStatus(): Promise<Record<string, string>> {
     const uptime = plain.match(/TOTAL UPTIME FOR THE LAST 90 DAYS\s+([0-9.]+%)/i)?.[1];
     const lower = label.toLowerCase();
     const state = lower.includes("disruption") ? "disruption" : lower.includes("performance") || lower.includes("maintenance") ? "warning" : "normal";
+    logInfo("quickbase.status_loaded", { state, label, elapsedMs: Math.round(performance.now() - started) });
     return { state, label, detail: uptime ? `${uptime} uptime` : "Live status", url: QUICKBASE_STATUS_URL + "#!/" };
-  } catch {
+  } catch (error) {
+    logError("quickbase.status_failed", error, { elapsedMs: Math.round(performance.now() - started) });
     return { state: "unknown", label: "Status unavailable", detail: "Open Quickbase", url: QUICKBASE_STATUS_URL + "#!/" };
   }
 }
@@ -356,6 +401,7 @@ function qbDateLabel(value: string): string {
 }
 
 async function quickbaseReleases(env: Env): Promise<{ records: ReleaseNote[]; generated: string; sourceUrl: string }> {
+  const started = performance.now();
   const params = new URLSearchParams({
     a: "API_DoQuery",
     qid: "21",
@@ -389,10 +435,12 @@ async function quickbaseReleases(env: Env): Promise<{ records: ReleaseNote[]; ge
   }).sort((a, b) => b.dateSort.localeCompare(a.dateSort));
   const added = await trackUnique(env, "release", records.map((item) => item.id || item.url));
   if (added) await event(env, "Unique Releases", added);
+  logInfo("quickbase.releases_loaded", { records: records.length, uniqueAdded: added, elapsedMs: Math.round(performance.now() - started) });
   return { records, generated: displayStamp(), sourceUrl: QUICKBASE_RELEASES_URL };
 }
 
 async function companyNews(env: Env): Promise<{ records: CompanyStory[]; generated: string; sourceUrl: string }> {
+  const started = performance.now();
   const body = await (await fetch(VTG_NEWS_URL, { headers: { "user-agent": "Mozilla/5.0 morning-dashboard/2.0" } })).text();
   const records = [...body.matchAll(/<article\b([\s\S]*?)<\/article>/gi)].map((article) => {
     const block = article[1];
@@ -411,6 +459,7 @@ async function companyNews(env: Env): Promise<{ records: CompanyStory[]; generat
   }).filter((item) => item.title).sort((a, b) => b.dateSort.localeCompare(a.dateSort)).slice(0, 30);
   const added = await trackUnique(env, "company", records.map((item) => item.url || item.title));
   if (added) await event(env, "Unique Company News", added);
+  logInfo("company.news_loaded", { records: records.length, uniqueAdded: added, elapsedMs: Math.round(performance.now() - started) });
   return { records, generated: displayStamp(), sourceUrl: VTG_NEWS_URL };
 }
 
@@ -563,7 +612,7 @@ document.getElementById("refresh").onclick=load;load();setInterval(load,60000);
   return layout("Dashboard Metrics", "M", "Metrics", body, script);
 }
 
-async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const started = performance.now();
   const url = new URL(request.url);
   const path = url.pathname === "/" || url.pathname === "/dashboard.html" ? "/news.html" :
@@ -571,6 +620,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     url.pathname === "/company.html" ? "/company-news.html" : url.pathname;
 
   if (path !== url.pathname) {
+    logInfo("request.redirect", { from: url.pathname, to: path });
     return Response.redirect(new URL(path, url.origin).toString(), 302);
   }
 
@@ -580,14 +630,20 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
       return json(await tasks(env), 200, 15);
     }
     const denied = requireWriteToken(request, env);
-    if (denied) return denied;
+    if (denied) {
+      logWarn("task.write_denied", { method: request.method, path });
+      return denied;
+    }
     ctx.waitUntil(metric(env, "api:tasks-save"));
     const payload = await request.json<Partial<Task>>();
     return json(await upsertTask(env, payload));
   }
   if (path.startsWith("/api/tasks/") && request.method === "DELETE") {
     const denied = requireWriteToken(request, env);
-    if (denied) return denied;
+    if (denied) {
+      logWarn("task.write_denied", { method: request.method, path: "/api/tasks/:id" });
+      return denied;
+    }
     return json(await deleteTask(env, decodeURIComponent(path.replace("/api/tasks/", ""))));
   }
   if (path === "/api/quickbase-status") {
@@ -605,7 +661,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/api/metrics") return json(await metrics(env), 200, 30);
   if (path === "/api/refresh-news" && request.method === "POST") {
     const denied = requireWriteToken(request, env);
-    if (denied) return denied;
+    if (denied) {
+      logWarn("news.refresh_denied", { method: request.method, path });
+      return denied;
+    }
     return json({ stories: await refreshNews(env), refreshed: displayStamp() });
   }
 
@@ -619,19 +678,50 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     ctx.waitUntil(trackPage(env, path, performance.now() - started));
     return htmlResponse(body);
   }
+  logWarn("request.not_found", { method: request.method, path });
   return new Response("Not found", { status: 404 });
+}
+
+async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const started = performance.now();
+  const url = new URL(request.url);
+  try {
+    const response = await handleRequest(request, env, ctx);
+    logInfo("request.completed", {
+      method: request.method,
+      path: url.pathname,
+      status: response.status,
+      elapsedMs: Math.round(performance.now() - started)
+    });
+    return response;
+  } catch (error) {
+    logError("request.failed", error, {
+      method: request.method,
+      path: url.pathname,
+      elapsedMs: Math.round(performance.now() - started)
+    });
+    return json({ ok: false, error: "Internal server error" }, 500);
+  }
 }
 
 export default {
   fetch: route,
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    const started = performance.now();
     const easternHour = new Intl.DateTimeFormat("en-US", {
       hour: "2-digit",
       hour12: false,
       timeZone: "America/New_York"
     }).format(new Date());
     if (easternHour === "08") {
-      ctx.waitUntil(refreshNews(env));
+      logInfo("scheduled.refresh_queued", { easternHour });
+      ctx.waitUntil(
+        refreshNews(env)
+          .then((stories) => logInfo("scheduled.refresh_completed", { stories: stories.length, elapsedMs: Math.round(performance.now() - started) }))
+          .catch((error) => logError("scheduled.refresh_failed", error, { elapsedMs: Math.round(performance.now() - started) }))
+      );
+    } else {
+      logInfo("scheduled.refresh_skipped", { easternHour });
     }
   }
 };

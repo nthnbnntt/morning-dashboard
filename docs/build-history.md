@@ -203,6 +203,8 @@ Key changes:
 - Added background API prefetching for faster page-to-page navigation.
 - Added horizontal swipe navigation between dashboard pages.
 - Added View Transitions API animations for swipe navigation.
+- Added structured Worker console logging for requests, task lifecycle events, feed refreshes, external data loads, redirects, denied writes, scheduled refresh runs, and unexpected failures.
+- Kept logs privacy-conscious by avoiding task titles, notes, request bodies, tokens, and other sensitive payloads.
 
 ## 14. Current Pages
 
