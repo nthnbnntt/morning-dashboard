@@ -468,8 +468,8 @@ var MorningDashboard = (() => {
     <div class="ticket-summary compact" aria-label="Tickets by status">
       ${counts.map(([status, count]) => `
         <div class="ticket-summary-item">
-          <span class="pill ${esc(statusClass(status))}">${esc(status)}</span>
           <strong>${count.toLocaleString()}</strong>
+          <span class="ticket-status-label ${esc(statusClass(status))}">${esc(status)}</span>
         </div>
       `).join("")}
     </div>
