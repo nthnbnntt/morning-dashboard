@@ -18,7 +18,7 @@ It serves:
 - `company-news.html`
 - `metrics.html`
 
-The Worker uses D1 for cached news, metrics, and unique item tracking. The Tickets page reads Quickbase records directly from the browser using a temporary Quickbase token for the logged-in user.
+The Worker uses D1 for cached news, metrics, and unique item tracking. The Tickets page reads Quickbase records directly from the browser using a temporary Quickbase token for the logged-in user, scoped to the VTG Quickbase app `br35mavda` and table `bsmpv3zg4`.
 
 ## Cloudflare Resources
 

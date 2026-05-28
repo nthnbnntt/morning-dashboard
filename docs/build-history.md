@@ -218,6 +218,8 @@ Key changes:
 - Removed task creation, editing, completion, deletion, and task API routes from the Worker.
 - Removed the task table from the fresh D1 migration.
 - Added browser-side Quickbase temporary authorization for the table `bsmpv3zg4` in realm `vtg.quickbase.com`.
+- Added the Quickbase app id `br35mavda` and switched table/record links to Quickbase's `/nav/app/br35mavda/table/bsmpv3zg4/...` route.
+- Requested the temporary Quickbase token against the app id while querying records from the table id.
 - Queried ticket records using field IDs:
   - `3`: Record ID
   - `11`: App
