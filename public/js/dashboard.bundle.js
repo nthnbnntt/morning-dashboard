@@ -285,7 +285,6 @@ var MorningDashboard = (() => {
     const statuses = Array.from(statusCounts(tickets).keys()).sort((a, b) => a.localeCompare(b));
     return `
     <div class="filters ticket-filters" aria-label="Filter tickets by status">
-      <button class="pill filter-pill active" type="button" data-filter="all">All</button>
       ${statuses.map((status) => `
         <button class="pill filter-pill ${esc(statusClass(status))}" type="button" data-filter="${esc(status)}">${esc(status)}</button>
       `).join("")}
@@ -392,7 +391,7 @@ var MorningDashboard = (() => {
   `;
     try {
       let shown2 = function(ticket) {
-        return filter === "all" || ticket.status === filter;
+        return !filter || ticket.status === filter;
       }, renderList2 = function() {
         const visibleTickets = tickets.filter(shown2);
         qs("#ticket-list").innerHTML = visibleTickets.map(ticketCard).join("") || empty("No tickets match this filter.");
@@ -401,11 +400,11 @@ var MorningDashboard = (() => {
       const tickets = await loadTickets();
       qs("#ticket-status").textContent = `${tickets.length} tickets loaded from Quickbase.`;
       qs("#ticket-filters").innerHTML = ticketStatusFilters(tickets);
-      let filter = "all";
+      let filter = "";
       qsa(".ticket-filters button", view).forEach((button) => {
         button.addEventListener("click", () => {
-          filter = button.dataset.filter;
-          qsa(".ticket-filters button", view).forEach((item) => item.classList.toggle("active", item === button));
+          filter = filter === button.dataset.filter ? "" : button.dataset.filter;
+          qsa(".ticket-filters button", view).forEach((item) => item.classList.toggle("active", item.dataset.filter === filter));
           renderList2();
         });
       });

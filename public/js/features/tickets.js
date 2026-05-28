@@ -52,26 +52,10 @@ export function statusCounts(tickets) {
   }, new Map());
 }
 
-function ticketStatusSummary(tickets) {
-  const counts = Array.from(statusCounts(tickets).entries())
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  return `
-    <div class="ticket-summary" aria-label="Tickets by status">
-      ${counts.map(([status, count]) => `
-        <div class="ticket-summary-item">
-          <span class="pill ${esc(statusClass(status))}">${esc(status)}</span>
-          <strong>${count.toLocaleString()}</strong>
-        </div>
-      `).join("")}
-    </div>
-  `;
-}
-
 function ticketStatusFilters(tickets) {
   const statuses = Array.from(statusCounts(tickets).keys()).sort((a, b) => a.localeCompare(b));
   return `
     <div class="filters ticket-filters" aria-label="Filter tickets by status">
-      <button class="pill filter-pill active" type="button" data-filter="all">All</button>
       ${statuses.map((status) => `
         <button class="pill filter-pill ${esc(statusClass(status))}" type="button" data-filter="${esc(status)}">${esc(status)}</button>
       `).join("")}
@@ -186,10 +170,10 @@ export async function renderTickets(view) {
     const tickets = await loadTickets();
     qs("#ticket-status").textContent = `${tickets.length} tickets loaded from Quickbase.`;
     qs("#ticket-filters").innerHTML = ticketStatusFilters(tickets);
-    let filter = "all";
+    let filter = "";
 
     function shown(ticket) {
-      return filter === "all" || ticket.status === filter;
+      return !filter || ticket.status === filter;
     }
 
     function renderList() {
@@ -199,8 +183,8 @@ export async function renderTickets(view) {
 
     qsa(".ticket-filters button", view).forEach((button) => {
       button.addEventListener("click", () => {
-        filter = button.dataset.filter;
-        qsa(".ticket-filters button", view).forEach((item) => item.classList.toggle("active", item === button));
+        filter = filter === button.dataset.filter ? "" : button.dataset.filter;
+        qsa(".ticket-filters button", view).forEach((item) => item.classList.toggle("active", item.dataset.filter === filter));
         renderList();
       });
     });
