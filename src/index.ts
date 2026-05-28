@@ -103,12 +103,12 @@ function shorten(value: string, limit: number): string {
   return value.slice(0, limit - 3).replace(/\s+\S*$/, "") + "...";
 }
 
-function json(payload: unknown, status = 200): Response {
+function json(payload: unknown, status = 200, maxAge = 0): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store"
+      "cache-control": maxAge > 0 ? `public, max-age=${maxAge}, stale-while-revalidate=60` : "no-store"
     }
   });
 }
@@ -476,7 +476,7 @@ function baseCss(): string {
 
 function sharedJs(): string {
   return `
-function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}function safeUrl(v){const s=String(v||"").trim();return /^https?:\\/\\//i.test(s)?s:"#"}const clock=document.getElementById("clock");function tick(){if(clock)clock.textContent=new Intl.DateTimeFormat([], {hour:"numeric",minute:"2-digit",timeZone:"America/New_York"}).format(new Date())}function pull(){const area=document.querySelector(".scroll-area");if(!area||!("ontouchstart"in window))return;let y=null,ok=false;area.addEventListener("touchstart",e=>{if(area.scrollTop<=0){y=e.touches[0].clientY;ok=false}else y=null},{passive:true});area.addEventListener("touchmove",e=>{if(y===null||area.scrollTop>0)return;ok=e.touches[0].clientY-y>90},{passive:true});area.addEventListener("touchend",()=>{if(ok)location.reload();y=null;ok=false},{passive:true})}tick();pull();setInterval(tick,30000);
+function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}function safeUrl(v){const s=String(v||"").trim();return /^https?:\\/\\//i.test(s)?s:"#"}const clock=document.getElementById("clock");function tick(){if(clock)clock.textContent=new Intl.DateTimeFormat([], {hour:"numeric",minute:"2-digit",timeZone:"America/New_York"}).format(new Date())}function pull(){const area=document.querySelector(".scroll-area");if(!area||!("ontouchstart"in window))return;let y=null,ok=false;area.addEventListener("touchstart",e=>{if(area.scrollTop<=0){y=e.touches[0].clientY;ok=false}else y=null},{passive:true});area.addEventListener("touchmove",e=>{if(y===null||area.scrollTop>0)return;ok=e.touches[0].clientY-y>90},{passive:true});area.addEventListener("touchend",()=>{if(ok)location.reload();y=null;ok=false},{passive:true})}tick();pull();setInterval(tick,30000);window.addEventListener("load",function(){setTimeout(function(){["/api/quickbase-status","/api/quickbase-releases","/api/company-news","/api/metrics","/api/tasks"].forEach(function(u){fetch(u).catch(function(){})})},800)});
 `;
 }
 
@@ -577,7 +577,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/api/tasks") {
     if (request.method === "GET") {
       ctx.waitUntil(metric(env, "api:tasks"));
-      return json(await tasks(env));
+      return json(await tasks(env), 200, 15);
     }
     const denied = requireWriteToken(request, env);
     if (denied) return denied;
@@ -592,17 +592,17 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   }
   if (path === "/api/quickbase-status") {
     ctx.waitUntil(metric(env, "api:quickbase-status"));
-    return json(await quickbaseStatus());
+    return json(await quickbaseStatus(), 200, 300);
   }
   if (path === "/api/quickbase-releases") {
     await metric(env, "api:quickbase-releases");
-    return json(await quickbaseReleases(env));
+    return json(await quickbaseReleases(env), 200, 600);
   }
   if (path === "/api/company-news") {
     await metric(env, "api:company-news");
-    return json(await companyNews(env));
+    return json(await companyNews(env), 200, 600);
   }
-  if (path === "/api/metrics") return json(await metrics(env));
+  if (path === "/api/metrics") return json(await metrics(env), 200, 30);
   if (path === "/api/refresh-news" && request.method === "POST") {
     const denied = requireWriteToken(request, env);
     if (denied) return denied;
