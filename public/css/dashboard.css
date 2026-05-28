@@ -262,10 +262,20 @@ h1 {
   border-color: rgba(193, 139, 32, 0.35);
 }
 
+.pill.high {
+  background: rgba(199, 60, 45, 0.08);
+}
+
 .pill.released,
 .pill.normal {
   color: var(--teal);
   border-color: rgba(15, 118, 110, 0.35);
+}
+
+.pill.review {
+  color: #5f4bb6;
+  border-color: rgba(95, 75, 182, 0.35);
+  background: rgba(95, 75, 182, 0.08);
 }
 
 .lead {
@@ -320,6 +330,46 @@ h1 {
 .filter-pill.active {
   border-color: var(--ink);
   background: var(--ink);
+  color: var(--paper);
+}
+
+.ticket-filters .filter-pill.normal {
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.ticket-filters .filter-pill.low {
+  background: rgba(193, 139, 32, 0.1);
+}
+
+.ticket-filters .filter-pill.high {
+  background: rgba(199, 60, 45, 0.08);
+}
+
+.ticket-filters .filter-pill.review {
+  background: rgba(95, 75, 182, 0.08);
+}
+
+.ticket-filters .filter-pill.active.normal {
+  border-color: var(--teal);
+  background: var(--teal);
+  color: var(--paper);
+}
+
+.ticket-filters .filter-pill.active.low {
+  border-color: var(--gold);
+  background: var(--gold);
+  color: var(--paper);
+}
+
+.ticket-filters .filter-pill.active.high {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.ticket-filters .filter-pill.active.review {
+  border-color: #5f4bb6;
+  background: #5f4bb6;
   color: var(--paper);
 }
 
@@ -482,6 +532,10 @@ h1 {
 
 .ticket-status-label.high {
   color: var(--accent);
+}
+
+.ticket-status-label.review {
+  color: #5f4bb6;
 }
 
 .ticket-card h3 {

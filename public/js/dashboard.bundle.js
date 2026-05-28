@@ -269,6 +269,10 @@ var MorningDashboard = (() => {
   }
   function statusClass(status) {
     const normalized = String(status || "").trim().toLowerCase();
+    if (normalized === "open") return "normal";
+    if (normalized === "assigned") return "low";
+    if (normalized === "hold") return "high";
+    if (normalized === "review board") return "review";
     if (normalized.includes("urgent") || normalized.includes("late") || normalized.includes("blocked")) return "high";
     if (normalized.includes("new") || normalized.includes("open")) return "normal";
     if (normalized.includes("progress") || normalized.includes("pending")) return "low";
@@ -282,7 +286,13 @@ var MorningDashboard = (() => {
     }, /* @__PURE__ */ new Map());
   }
   function ticketStatusFilters(tickets) {
-    const statuses = Array.from(statusCounts(tickets).keys()).sort((a, b) => a.localeCompare(b));
+    const order = ["OPEN", "ASSIGNED", "HOLD", "REVIEW BOARD"];
+    const statuses = Array.from(statusCounts(tickets).keys()).sort((a, b) => {
+      const ai = order.indexOf(a.toUpperCase());
+      const bi = order.indexOf(b.toUpperCase());
+      if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      return a.localeCompare(b);
+    });
     return `
     <div class="filters ticket-filters" aria-label="Filter tickets by status">
       ${statuses.map((status) => `
