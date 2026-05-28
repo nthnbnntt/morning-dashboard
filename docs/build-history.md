@@ -204,6 +204,7 @@ Key changes:
 - Added horizontal swipe navigation between dashboard pages.
 - Added View Transitions API animations for swipe navigation.
 - Added structured Worker console logging for requests, task lifecycle events, feed refreshes, external data loads, redirects, denied writes, scheduled refresh runs, and unexpected failures.
+- Added browser DevTools console logging for page loads, API fetches, prefetches, pull refreshes, swipe navigation, news filters, task actions, release filters, company news loads, and metrics refreshes.
 - Kept logs privacy-conscious by avoiding task titles, notes, request bodies, tokens, and other sensitive payloads.
 
 ## 14. Current Pages
