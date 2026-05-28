@@ -1,15 +1,3 @@
-CREATE TABLE IF NOT EXISTS tasks (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  notes TEXT NOT NULL DEFAULT '',
-  due TEXT NOT NULL DEFAULT '',
-  priority TEXT NOT NULL DEFAULT 'normal',
-  done INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  completed_at TEXT
-);
-
 CREATE TABLE IF NOT EXISTS news_cache (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   payload TEXT NOT NULL,
@@ -35,5 +23,4 @@ CREATE TABLE IF NOT EXISTS metric_events (
   created_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_tasks_done_due ON tasks(done, due);
 CREATE INDEX IF NOT EXISTS idx_metric_events_created ON metric_events(created_at DESC);

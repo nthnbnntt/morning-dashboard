@@ -1,6 +1,6 @@
 # Morning Dashboard on Cloudflare
 
-Hosted Morning Dashboard with connection to Quickbase API, company news, tasks, metrics, and morning news.
+Hosted Morning Dashboard with connection to Quickbase API, company news, tickets, metrics, and morning news.
 
 This is the deployable Cloudflare Worker version of the local Morning Dashboard prototype.
 
@@ -13,12 +13,12 @@ docs/build-history.md
 It serves:
 
 - `news.html`
-- `tasks.html`
+- `tickets.html`
 - `quickbase-releases.html`
 - `company-news.html`
 - `metrics.html`
 
-The Worker uses D1 for tasks, cached news, metrics, and unique item tracking.
+The Worker uses D1 for cached news, metrics, and unique item tracking. The Tickets page reads Quickbase records directly from the browser using a temporary Quickbase token for the logged-in user.
 
 ## Cloudflare Resources
 
@@ -81,4 +81,6 @@ Push to `main`. The workflow in `.github/workflows/deploy-cloudflare.yml` will:
 
 The cron trigger runs at `12:00 UTC` and `13:00 UTC`, but the Worker only refreshes news when the current time in `America/New_York` is `8 AM`. This handles daylight saving time without manual schedule changes.
 
-Task writes are public by default because `TASK_WRITE_TOKEN` is empty in `wrangler.jsonc`. Set it to a secret/token before exposing the dashboard broadly.
+The Tickets page is read-only. It uses Quickbase temporary authorization in the browser and does not store Quickbase credentials in the Worker.
+
+`ADMIN_WRITE_TOKEN` is empty in `wrangler.jsonc`; set it before exposing any admin-only write endpoints broadly.

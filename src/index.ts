@@ -1,19 +1,15 @@
 export interface Env {
   DB: D1Database;
   APP_NAME: string;
-  TASK_WRITE_TOKEN: string;
+  ADMIN_WRITE_TOKEN: string;
 }
 
-type Task = {
-  id: string;
-  title: string;
-  notes: string;
-  due: string;
-  priority: "low" | "normal" | "high";
-  done: boolean;
-  createdAt: string;
-  updatedAt: string;
-  completedAt: string | null;
+type Ticket = {
+  rid: string;
+  app: string;
+  submitter: string;
+  issue: string;
+  url: string;
 };
 
 type Story = {
@@ -61,11 +57,13 @@ const FEEDS: Array<[string, string]> = [
 const QUICKBASE_STATUS_URL = "https://quickbasestatus.status.page/";
 const QUICKBASE_RELEASES_URL = "https://resources.quickbase.com/db/bu9ax9c5r/4bade523-f7d9-4419-b904-2ce64770b431?from=myqb&a=appoverview";
 const QUICKBASE_RELEASES_TABLE = "bu9a2h65e";
+const QUICKBASE_REALM = "vtg.quickbase.com";
+const QUICKBASE_TICKETS_TABLE = "bsmpv3zg4";
 const VTG_NEWS_URL = "https://vtgdefense.com/our-company/news/";
 
 const pageNames: Record<string, string> = {
   "/news.html": "News",
-  "/tasks.html": "Tasks",
+  "/tickets.html": "Tickets",
   "/quickbase-releases.html": "Releases",
   "/company-news.html": "Company",
   "/metrics.html": "Metrics"
@@ -84,10 +82,6 @@ function logError(event: string, error: unknown, fields: LogFields = {}): void {
     ? { errorName: error.name, errorMessage: error.message }
     : { errorMessage: String(error) };
   console.error(JSON.stringify({ level: "error", event, ...fields, ...details }));
-}
-
-function taskRef(id: string): string {
-  return id ? id.slice(0, 8) : "unknown";
 }
 
 function escapeHtml(value: unknown): string {
@@ -213,97 +207,11 @@ async function trackPage(env: Env, path: string, elapsed: number): Promise<void>
   ]);
 }
 
-function requireWriteToken(request: Request, env: Env): Response | null {
-  const token = env.TASK_WRITE_TOKEN?.trim();
+function requireAdminToken(request: Request, env: Env): Response | null {
+  const token = env.ADMIN_WRITE_TOKEN?.trim();
   if (!token) return null;
-  if (request.headers.get("x-task-token") === token) return null;
-  return json({ ok: false, error: "Missing or invalid task token" }, 401);
-}
-
-async function tasks(env: Env): Promise<Task[]> {
-  const { results } = await env.DB.prepare(
-    "SELECT id, title, notes, due, priority, done, created_at, updated_at, completed_at FROM tasks ORDER BY done, due, created_at"
-  ).all<{
-    id: string;
-    title: string;
-    notes: string;
-    due: string;
-    priority: "low" | "normal" | "high";
-    done: number;
-    created_at: string;
-    updated_at: string;
-    completed_at: string | null;
-  }>();
-  return results.map((row) => ({
-    id: row.id,
-    title: row.title,
-    notes: row.notes,
-    due: row.due,
-    priority: row.priority,
-    done: Boolean(row.done),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    completedAt: row.completed_at
-  }));
-}
-
-async function upsertTask(env: Env, input: Partial<Task>): Promise<Task[]> {
-  const id = String(input.id || crypto.randomUUID());
-  const title = String(input.title || "").trim();
-  if (!title) throw new Error("Task title is required");
-  const existing = await env.DB.prepare("SELECT done FROM tasks WHERE id = ?").bind(id).first<{ done: number }>();
-  const done = input.done !== undefined ? Boolean(input.done) : Boolean(existing?.done);
-  const completedAt = done ? (input.completedAt || nowIso()) : null;
-  await env.DB.prepare(
-    `INSERT INTO tasks(id, title, notes, due, priority, done, created_at, updated_at, completed_at)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       title = excluded.title,
-       notes = excluded.notes,
-       due = excluded.due,
-       priority = excluded.priority,
-       done = excluded.done,
-       updated_at = excluded.updated_at,
-       completed_at = excluded.completed_at`
-  ).bind(
-    id,
-    title,
-    String(input.notes || "").trim(),
-    String(input.due || ""),
-    input.priority === "high" || input.priority === "low" ? input.priority : "normal",
-    done ? 1 : 0,
-    input.createdAt || nowIso(),
-    nowIso(),
-    completedAt
-  ).run();
-  if (!existing) {
-    await metric(env, "tasks_created");
-    await event(env, "Tasks created");
-    logInfo("task.created", { taskId: taskRef(id), priority: input.priority ?? "normal", hasDueDate: Boolean(input.due) });
-  } else if (!existing.done && done) {
-    await metric(env, "tasks_completed");
-    await event(env, "Tasks completed");
-    logInfo("task.completed", { taskId: taskRef(id) });
-  } else if (existing.done && !done) {
-    await metric(env, "tasks_reopened");
-    await event(env, "Tasks reopened");
-    logInfo("task.reopened", { taskId: taskRef(id) });
-  } else {
-    logInfo("task.updated", { taskId: taskRef(id), priority: input.priority ?? "normal", hasDueDate: Boolean(input.due) });
-  }
-  return tasks(env);
-}
-
-async function deleteTask(env: Env, id: string): Promise<Task[]> {
-  const result = await env.DB.prepare("DELETE FROM tasks WHERE id = ?").bind(id).run();
-  if ((result.meta.changes ?? 0) > 0) {
-    await metric(env, "tasks_deleted");
-    await event(env, "Tasks deleted");
-    logInfo("task.deleted", { taskId: taskRef(id) });
-  } else {
-    logWarn("task.delete_not_found", { taskId: taskRef(id) });
-  }
-  return tasks(env);
+  if (request.headers.get("x-admin-token") === token) return null;
+  return json({ ok: false, error: "Missing or invalid write token" }, 401);
 }
 
 function extractTag(block: string, tag: string): string {
@@ -464,10 +372,8 @@ async function companyNews(env: Env): Promise<{ records: CompanyStory[]; generat
 }
 
 async function metrics(env: Env): Promise<Record<string, unknown>> {
-  const [{ results: rows }, open, complete, stories, releases, company, { results: events }] = await Promise.all([
+  const [{ results: rows }, stories, releases, company, { results: events }] = await Promise.all([
     env.DB.prepare("SELECT key, value FROM metrics").all<{ key: string; value: number }>(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM tasks WHERE done = 0").first<{ count: number }>(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM tasks WHERE done = 1").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM unique_items WHERE type = 'story'").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM unique_items WHERE type = 'release'").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM unique_items WHERE type = 'company'").first<{ count: number }>(),
@@ -476,8 +382,6 @@ async function metrics(env: Env): Promise<Record<string, unknown>> {
   const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   return {
     ...values,
-    current_open_tasks: open?.count ?? 0,
-    current_completed_tasks: complete?.count ?? 0,
     unique_stories_served: stories?.count ?? 0,
     unique_release_notes_loaded: releases?.count ?? 0,
     unique_company_news_loaded: company?.count ?? 0,
@@ -489,7 +393,7 @@ async function metrics(env: Env): Promise<Record<string, unknown>> {
 function layout(title: string, mark: string, active: string, body: string, script = ""): string {
   const nav = [
     ["News", "news.html"],
-    ["Tasks", "tasks.html"],
+    ["Tickets", "tickets.html"],
     ["Releases", "quickbase-releases.html"],
     ["Company", "company-news.html"],
     ["Metrics", "metrics.html"]
@@ -519,19 +423,18 @@ function layout(title: string, mark: string, active: string, body: string, scrip
 function baseCss(): string {
   return `
 :root{color-scheme:light;--ink:#161713;--muted:#60645b;--line:#dcdfd2;--paper:#fbfbf6;--panel:#fff;--accent:#c73c2d;--teal:#0f766e;--gold:#c18b20;--shadow:0 18px 50px rgba(22,23,19,.08)}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%;text-size-adjust:100%}body{margin:0;height:100dvh;overflow:hidden;background:linear-gradient(90deg,rgba(22,23,19,.04) 1px,transparent 1px),linear-gradient(180deg,rgba(22,23,19,.035) 1px,transparent 1px),var(--paper);background-size:44px 44px;color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit;font-size:16px}.shell{width:min(1180px,calc(100vw - 32px));height:100dvh;margin:0 auto;padding:28px 0 0;display:flex;flex-direction:column}.topbar{flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px 16px;padding-bottom:22px;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:12px;min-width:0;grid-column:1;grid-row:1}.mark{width:38px;height:38px;display:grid;place-items:center;border-radius:8px;background:var(--ink);color:var(--paper);font-weight:800;font-size:18px}h1{margin:0;font-size:clamp(1.35rem,2vw,2rem);line-height:1}.subtle{margin-top:5px;color:var(--muted);font-size:.92rem}.clock{grid-column:2;grid-row:1;text-align:right;color:var(--muted);font-size:.92rem;white-space:nowrap}.clock strong{display:block;color:var(--ink);font-size:1.35rem;line-height:1.1;margin-bottom:3px}.nav{display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;grid-column:1/-1;grid-row:2}.nav::-webkit-scrollbar{display:none}.nav a{display:inline-flex;align-items:center;white-space:nowrap;min-height:36px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.7);color:var(--muted);font-size:.9rem;font-weight:700}.nav a[aria-current=page]{border-color:var(--ink);color:var(--ink);background:var(--panel)}.scroll-area{flex:1 1 auto;min-height:0;overflow-y:auto;padding-bottom:42px}.panel,.card{border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.9);box-shadow:none}.panel{margin-top:24px;padding:20px;display:grid;gap:14px}.panel>h2{margin:0;font-size:.82rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}.panel>p{margin:0}.panel>a:not(.card){color:var(--teal);font-weight:700;font-size:.92rem}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.bars{display:grid;gap:9px;margin-top:10px}.bar-row{display:grid;grid-template-columns:minmax(72px,max-content) 1fr auto;align-items:center;gap:10px}.bar-track{height:7px;background:#ecefe4;border-radius:999px;overflow:hidden}.bar-fill{height:100%;background:var(--teal);border-radius:999px}.bar-val{font-size:.82rem;font-weight:700;min-width:24px;text-align:right;color:var(--ink)}.card{padding:18px}.meta,.pill{color:var(--muted);font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em}.pill{display:inline-flex;align-items:center;min-height:25px;border:1px solid var(--line);border-radius:999px;padding:4px 9px;background:var(--panel);margin:0 5px 5px 0}.pill.new,.pill.high{color:var(--accent);border-color:rgba(199,60,45,.35)}.pill.upcoming,.pill.low{color:var(--gold);border-color:rgba(193,139,32,.35)}.pill.released,.pill.normal{color:var(--teal);border-color:rgba(15,118,110,.35)}.lead{min-height:320px;margin-top:24px;padding:clamp(24px,4vw,44px);display:flex;flex-direction:column;justify-content:flex-end;border:1px solid var(--ink);border-radius:8px;background:linear-gradient(145deg,rgba(199,60,45,.12),transparent 40%),linear-gradient(315deg,rgba(15,118,110,.14),transparent 38%),var(--panel);box-shadow:var(--shadow)}.lead h2{max-width:780px;margin:12px 0 0;font-family:Georgia,"Times New Roman",serif;font-size:clamp(2.1rem,3.8vw,4.15rem);line-height:1;font-weight:600}.lead p,.card p{color:var(--muted);line-height:1.45}.source-list,.filters{display:flex;gap:6px;flex-wrap:wrap}.source-list button,.refresh{min-height:36px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--muted);padding:0 11px;font-size:.85rem;font-weight:700;white-space:nowrap;cursor:pointer}.source-list button.active{border-color:var(--ink);background:var(--ink);color:var(--paper)}.filter-pill{cursor:pointer;text-transform:uppercase}.filter-pill.active{background:#f7f8f1;border-color:currentColor}.story.hidden{display:none}.section-title{display:flex;justify-content:space-between;align-items:center;margin:34px 0 14px}.section-title h2{margin:0;font-size:.9rem;text-transform:uppercase;letter-spacing:.12em}.status{display:flex;align-items:center;gap:12px}.status-dot{width:13px;height:13px;border-radius:50%;background:var(--muted)}.status[data-state=normal] .status-dot{background:var(--teal)}.status[data-state=warning] .status-dot{background:var(--gold)}.status[data-state=disruption] .status-dot{background:var(--accent)}.task-card{display:grid;grid-template-columns:28px minmax(0,1fr) 40px;gap:12px;align-items:start}.task-card.done{opacity:.62}.task-card input[type=checkbox]{width:20px;height:20px;accent-color:var(--teal)}.task-card h3{text-decoration:none;margin:.1rem 0}.task-card.done h3{text-decoration:line-through}.delete{width:34px;height:34px;min-height:34px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--muted)}.company-list{gap:16px;align-items:start}.company-card{display:flex;flex-direction:column;min-height:245px;padding:20px}.company-card h3{margin:12px 0 0;font-size:1.08rem;line-height:1.22}.company-card p{margin:12px 0 0;line-height:1.42}.company-card a{margin-top:auto;padding-top:14px;color:var(--teal);font-weight:800}.release-card h3{margin:12px 0 0;font-size:1.08rem;line-height:1.22}.release-card p{margin:12px 0 0}.release-card a{display:inline-flex;margin-top:12px;color:var(--teal);font-weight:800}.fab{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));width:48px;height:48px;min-height:48px;border-radius:50%;border:1px solid var(--ink);background:var(--ink);color:var(--paper);font-size:1.7rem;box-shadow:var(--shadow);z-index:80}.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(22,23,19,.34);z-index:90}.modal.open{display:flex}.modal-panel{width:min(520px,100%);max-height:calc(100dvh - 40px);overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:0 24px 70px rgba(22,23,19,.22);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}label{display:grid;gap:7px;color:var(--muted);font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-top:12px}input,select,textarea{width:100%;min-height:52px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);padding:0 14px}textarea{min-height:132px;padding-top:14px;line-height:1.45}.button-row{display:flex;gap:10px;margin-top:14px}.button-row button,.modal-head button{min-height:44px;border:1px solid var(--ink);border-radius:8px;background:var(--ink);color:var(--paper);padding:0 14px;font-weight:800}.button-row .secondary,.modal-head button{border-color:var(--line);background:var(--panel);color:var(--muted)}.section-toggle{width:100%;min-height:44px;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);display:flex;justify-content:space-between;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.section-body{display:grid;gap:12px;margin:12px 0}.collapsed .section-body{display:none}.empty{padding:24px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.55)}.gauge{--pct:0;width:132px;height:132px;border-radius:50%;display:grid;place-items:center;margin:auto;background:conic-gradient(var(--teal) calc(var(--pct)*1%),#ecefe4 0)}.gauge strong{width:96px;height:96px;border-radius:50%;display:grid;place-items:center;background:var(--panel);font-size:1.4rem}@media(max-width:900px){.grid,.grid.two{grid-template-columns:1fr}.row{grid-template-columns:1fr}.company-card{min-height:0}}@media(max-width:560px){.shell{width:min(calc(100% - 22px),1180px);padding-top:18px}.clock{align-self:start;padding-top:3px}.lead h2{font-size:2.15rem}}@view-transition{navigation:auto}@keyframes _stl{to{transform:translateX(-100%)}}@keyframes _sfr{from{transform:translateX(100%)}}@keyframes _str{to{transform:translateX(100%)}}@keyframes _sfl{from{transform:translateX(-100%)}}html[data-swipe=left]::view-transition-old(root){animation:_stl 280ms ease;z-index:1}html[data-swipe=left]::view-transition-new(root){animation:_sfr 280ms ease;z-index:2}html[data-swipe=right]::view-transition-old(root){animation:_str 280ms ease;z-index:1}html[data-swipe=right]::view-transition-new(root){animation:_sfl 280ms ease;z-index:2}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%;text-size-adjust:100%}body{margin:0;height:100dvh;overflow:hidden;background:linear-gradient(90deg,rgba(22,23,19,.04) 1px,transparent 1px),linear-gradient(180deg,rgba(22,23,19,.035) 1px,transparent 1px),var(--paper);background-size:44px 44px;color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit;font-size:16px}.shell{width:min(1180px,calc(100vw - 32px));height:100dvh;margin:0 auto;padding:28px 0 0;display:flex;flex-direction:column}.topbar{flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px 16px;padding-bottom:22px;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:12px;min-width:0;grid-column:1;grid-row:1}.mark{width:38px;height:38px;display:grid;place-items:center;border-radius:8px;background:var(--ink);color:var(--paper);font-weight:800;font-size:18px}h1{margin:0;font-size:clamp(1.35rem,2vw,2rem);line-height:1}.subtle{margin-top:5px;color:var(--muted);font-size:.92rem}.clock{grid-column:2;grid-row:1;text-align:right;color:var(--muted);font-size:.92rem;white-space:nowrap}.clock strong{display:block;color:var(--ink);font-size:1.35rem;line-height:1.1;margin-bottom:3px}.nav{display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;grid-column:1/-1;grid-row:2}.nav::-webkit-scrollbar{display:none}.nav a{display:inline-flex;align-items:center;white-space:nowrap;min-height:36px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.7);color:var(--muted);font-size:.9rem;font-weight:700}.nav a[aria-current=page]{border-color:var(--ink);color:var(--ink);background:var(--panel)}.scroll-area{flex:1 1 auto;min-height:0;overflow-y:auto;padding-bottom:42px}.panel,.card{border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.9);box-shadow:none}.panel{margin-top:24px;padding:20px;display:grid;gap:14px}.panel>h2{margin:0;font-size:.82rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}.panel>p{margin:0}.panel>a:not(.card){color:var(--teal);font-weight:700;font-size:.92rem}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.bars{display:grid;gap:9px;margin-top:10px}.bar-row{display:grid;grid-template-columns:minmax(72px,max-content) 1fr auto;align-items:center;gap:10px}.bar-track{height:7px;background:#ecefe4;border-radius:999px;overflow:hidden}.bar-fill{height:100%;background:var(--teal);border-radius:999px}.bar-val{font-size:.82rem;font-weight:700;min-width:24px;text-align:right;color:var(--ink)}.card{padding:18px}.meta,.pill{color:var(--muted);font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em}.pill{display:inline-flex;align-items:center;min-height:25px;border:1px solid var(--line);border-radius:999px;padding:4px 9px;background:var(--panel);margin:0 5px 5px 0}.pill.new,.pill.high{color:var(--accent);border-color:rgba(199,60,45,.35)}.pill.upcoming,.pill.low{color:var(--gold);border-color:rgba(193,139,32,.35)}.pill.released,.pill.normal{color:var(--teal);border-color:rgba(15,118,110,.35)}.lead{min-height:320px;margin-top:24px;padding:clamp(24px,4vw,44px);display:flex;flex-direction:column;justify-content:flex-end;border:1px solid var(--ink);border-radius:8px;background:linear-gradient(145deg,rgba(199,60,45,.12),transparent 40%),linear-gradient(315deg,rgba(15,118,110,.14),transparent 38%),var(--panel);box-shadow:var(--shadow)}.lead h2{max-width:780px;margin:12px 0 0;font-family:Georgia,"Times New Roman",serif;font-size:clamp(2.1rem,3.8vw,4.15rem);line-height:1;font-weight:600}.lead p,.card p{color:var(--muted);line-height:1.45}.source-list,.filters{display:flex;gap:6px;flex-wrap:wrap}.source-list button,.refresh{min-height:36px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--muted);padding:0 11px;font-size:.85rem;font-weight:700;white-space:nowrap;cursor:pointer}.source-list button.active{border-color:var(--ink);background:var(--ink);color:var(--paper)}.filter-pill{cursor:pointer;text-transform:uppercase}.filter-pill.active{background:#f7f8f1;border-color:currentColor}.story.hidden{display:none}.section-title{display:flex;justify-content:space-between;align-items:center;margin:34px 0 14px}.section-title h2{margin:0;font-size:.9rem;text-transform:uppercase;letter-spacing:.12em}.status{display:flex;align-items:center;gap:12px}.status-dot{width:13px;height:13px;border-radius:50%;background:var(--muted)}.status[data-state=normal] .status-dot{background:var(--teal)}.status[data-state=warning] .status-dot{background:var(--gold)}.status[data-state=disruption] .status-dot{background:var(--accent)}.ticket-list{gap:16px;align-items:start}.ticket-card{display:grid;gap:12px;min-height:190px;cursor:pointer}.ticket-card h3{margin:0;font-size:1.08rem;line-height:1.25}.ticket-fields{display:grid;gap:10px}.ticket-field span{display:block}.ticket-detail{display:grid;gap:14px;margin-top:16px}.ticket-detail p{margin:0;color:var(--muted);line-height:1.5}.company-list{gap:16px;align-items:start}.company-card{display:flex;flex-direction:column;min-height:245px;padding:20px}.company-card h3{margin:12px 0 0;font-size:1.08rem;line-height:1.22}.company-card p{margin:12px 0 0;line-height:1.42}.company-card a{margin-top:auto;padding-top:14px;color:var(--teal);font-weight:800}.release-card h3{margin:12px 0 0;font-size:1.08rem;line-height:1.22}.release-card p{margin:12px 0 0}.release-card a{display:inline-flex;margin-top:12px;color:var(--teal);font-weight:800}.fab{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));width:48px;height:48px;min-height:48px;border-radius:50%;border:1px solid var(--ink);background:var(--ink);color:var(--paper);font-size:1.7rem;box-shadow:var(--shadow);z-index:80}.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(22,23,19,.34);z-index:90}.modal.open{display:flex}.modal-panel{width:min(620px,100%);max-height:calc(100dvh - 40px);overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:0 24px 70px rgba(22,23,19,.22);padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}label{display:grid;gap:7px;color:var(--muted);font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-top:12px}input,select,textarea{width:100%;min-height:52px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);padding:0 14px}textarea{min-height:132px;padding-top:14px;line-height:1.45}.button-row{display:flex;gap:10px;margin-top:14px}.button-row button,.modal-head button{min-height:44px;border:1px solid var(--ink);border-radius:8px;background:var(--ink);color:var(--paper);padding:0 14px;font-weight:800}.button-row .secondary,.modal-head button{border-color:var(--line);background:var(--panel);color:var(--muted)}.section-toggle{width:100%;min-height:44px;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);display:flex;justify-content:space-between;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.section-body{display:grid;gap:12px;margin:12px 0}.collapsed .section-body{display:none}.empty{padding:24px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.55)}.gauge{--pct:0;width:132px;height:132px;border-radius:50%;display:grid;place-items:center;margin:auto;background:conic-gradient(var(--teal) calc(var(--pct)*1%),#ecefe4 0)}.gauge strong{width:96px;height:96px;border-radius:50%;display:grid;place-items:center;background:var(--panel);font-size:1.4rem}@media(max-width:900px){.grid,.grid.two{grid-template-columns:1fr}.row{grid-template-columns:1fr}.company-card,.ticket-card{min-height:0}}@media(max-width:560px){.shell{width:min(calc(100% - 22px),1180px);padding-top:18px}.clock{align-self:start;padding-top:3px}.lead h2{font-size:2.15rem}}@view-transition{navigation:auto}@keyframes _stl{to{transform:translateX(-100%)}}@keyframes _sfr{from{transform:translateX(100%)}}@keyframes _str{to{transform:translateX(100%)}}@keyframes _sfl{from{transform:translateX(-100%)}}html[data-swipe=left]::view-transition-old(root){animation:_stl 280ms ease;z-index:1}html[data-swipe=left]::view-transition-new(root){animation:_sfr 280ms ease;z-index:2}html[data-swipe=right]::view-transition-old(root){animation:_str 280ms ease;z-index:1}html[data-swipe=right]::view-transition-new(root){animation:_sfl 280ms ease;z-index:2}
 `;
 }
 
 function sharedJs(): string {
   return `
-(function(){const d=sessionStorage.getItem("swipe-dir");if(d){document.documentElement.dataset.swipe=d;sessionStorage.removeItem("swipe-dir")}})();function mdLog(event,fields){console.log("[Morning Dashboard]",Object.assign({event,path:location.pathname,at:new Date().toISOString()},fields||{}))}async function mdFetch(url,options){const started=performance.now();mdLog("api.fetch_started",{url,method:options?.method||"GET"});try{const response=await fetch(url,options);mdLog("api.fetch_completed",{url,method:options?.method||"GET",status:response.status,elapsedMs:Math.round(performance.now()-started)});return response}catch(error){console.error("[Morning Dashboard]",{event:"api.fetch_failed",path:location.pathname,url,method:options?.method||"GET",elapsedMs:Math.round(performance.now()-started),error:error?.message||String(error)});throw error}}function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}function safeUrl(v){const s=String(v||"").trim();return /^https?:\\/\\//i.test(s)?s:"#"}const clock=document.getElementById("clock");function tick(){if(clock)clock.textContent=new Intl.DateTimeFormat([], {hour:"numeric",minute:"2-digit",timeZone:"America/New_York"}).format(new Date())}function pull(){const area=document.querySelector(".scroll-area");if(!area||!("ontouchstart"in window))return;let y=null,ok=false;area.addEventListener("touchstart",e=>{if(area.scrollTop<=0){y=e.touches[0].clientY;ok=false}else y=null},{passive:true});area.addEventListener("touchmove",e=>{if(y===null||area.scrollTop>0)return;ok=e.touches[0].clientY-y>90},{passive:true});area.addEventListener("touchend",()=>{if(ok){mdLog("pull_refresh_triggered");location.reload()}y=null;ok=false},{passive:true})}function swipe(){const pages=["/news.html","/tasks.html","/quickbase-releases.html","/company-news.html","/metrics.html"];const cur=pages.indexOf(location.pathname);if(cur===-1)return;const area=document.querySelector(".scroll-area");if(!area)return;let x0=null,y0=null;area.addEventListener("touchstart",function(e){x0=e.touches[0].clientX;y0=e.touches[0].clientY},{passive:true});area.addEventListener("touchend",function(e){if(x0===null)return;const dx=e.changedTouches[0].clientX-x0,dy=e.changedTouches[0].clientY-y0;x0=null;if(Math.abs(dx)<60||Math.abs(dx)<Math.abs(dy)*1.5)return;if(dx<0&&cur<pages.length-1){mdLog("swipe_navigation",{direction:"left",to:pages[cur+1]});sessionStorage.setItem("swipe-dir","left");location.href=pages[cur+1]}else if(dx>0&&cur>0){mdLog("swipe_navigation",{direction:"right",to:pages[cur-1]});sessionStorage.setItem("swipe-dir","right");location.href=pages[cur-1]}},{passive:true})}mdLog("page.script_loaded",{title:document.title});tick();pull();swipe();setInterval(tick,30000);window.addEventListener("load",function(){mdLog("page.loaded");setTimeout(function(){["/api/quickbase-status","/api/quickbase-releases","/api/company-news","/api/metrics","/api/tasks"].forEach(function(u){mdFetch(u).catch(function(){})})},800)});
+(function(){const d=sessionStorage.getItem("swipe-dir");if(d){document.documentElement.dataset.swipe=d;sessionStorage.removeItem("swipe-dir")}})();function mdLog(event,fields){console.log("[Morning Dashboard]",Object.assign({event,path:location.pathname,at:new Date().toISOString()},fields||{}))}async function mdFetch(url,options){const started=performance.now();mdLog("api.fetch_started",{url,method:options?.method||"GET"});try{const response=await fetch(url,options);mdLog("api.fetch_completed",{url,method:options?.method||"GET",status:response.status,elapsedMs:Math.round(performance.now()-started)});return response}catch(error){console.error("[Morning Dashboard]",{event:"api.fetch_failed",path:location.pathname,url,method:options?.method||"GET",elapsedMs:Math.round(performance.now()-started),error:error?.message||String(error)});throw error}}function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}function safeUrl(v){const s=String(v||"").trim();return /^https?:\\/\\//i.test(s)?s:"#"}const clock=document.getElementById("clock");function tick(){if(clock)clock.textContent=new Intl.DateTimeFormat([], {hour:"numeric",minute:"2-digit",timeZone:"America/New_York"}).format(new Date())}function pull(){const area=document.querySelector(".scroll-area");if(!area||!("ontouchstart"in window))return;let y=null,ok=false;area.addEventListener("touchstart",e=>{if(area.scrollTop<=0){y=e.touches[0].clientY;ok=false}else y=null},{passive:true});area.addEventListener("touchmove",e=>{if(y===null||area.scrollTop>0)return;ok=e.touches[0].clientY-y>90},{passive:true});area.addEventListener("touchend",()=>{if(ok){mdLog("pull_refresh_triggered");location.reload()}y=null;ok=false},{passive:true})}function swipe(){const pages=["/news.html","/tickets.html","/quickbase-releases.html","/company-news.html","/metrics.html"];const cur=pages.indexOf(location.pathname);if(cur===-1)return;const area=document.querySelector(".scroll-area");if(!area)return;let x0=null,y0=null;area.addEventListener("touchstart",function(e){x0=e.touches[0].clientX;y0=e.touches[0].clientY},{passive:true});area.addEventListener("touchend",function(e){if(x0===null)return;const dx=e.changedTouches[0].clientX-x0,dy=e.changedTouches[0].clientY-y0;x0=null;if(Math.abs(dx)<60||Math.abs(dx)<Math.abs(dy)*1.5)return;if(dx<0&&cur<pages.length-1){mdLog("swipe_navigation",{direction:"left",to:pages[cur+1]});sessionStorage.setItem("swipe-dir","left");location.href=pages[cur+1]}else if(dx>0&&cur>0){mdLog("swipe_navigation",{direction:"right",to:pages[cur-1]});sessionStorage.setItem("swipe-dir","right");location.href=pages[cur-1]}},{passive:true})}mdLog("page.script_loaded",{title:document.title});tick();pull();swipe();setInterval(tick,30000);window.addEventListener("load",function(){mdLog("page.loaded");setTimeout(function(){["/api/quickbase-status","/api/quickbase-releases","/api/company-news","/api/metrics"].forEach(function(u){mdFetch(u).catch(function(){})})},800)});
 `;
 }
 
 async function newsPage(env: Env): Promise<string> {
-  const [stories, allTasks] = await Promise.all([cachedStories(env), tasks(env)]);
-  const openTasks = allTasks.filter((task) => !task.done).length;
+  const stories = await cachedStories(env);
   const counts = new Map<string, number>();
   stories.forEach((story) => counts.set(story.source, (counts.get(story.source) ?? 0) + 1));
   const [lead, ...rest] = stories;
@@ -540,7 +443,7 @@ async function newsPage(env: Env): Promise<string> {
   const body = `
     <section class="panel">
       <div class="status" id="qb-status" data-state="unknown"><span class="status-dot"></span><strong id="qb-label">Quickbase</strong><span class="meta" id="qb-detail">Checking status…</span><a id="qb-link" href="${escapeHtml(safeUrl(QUICKBASE_STATUS_URL))}" target="_blank" rel="noreferrer">Open</a></div>
-      <a class="card" href="tasks.html"><span class="meta">Tasks</span><h2>${openTasks}</h2></a>
+      <a class="card" href="tickets.html"><span class="meta">Tickets</span><h2>Live</h2></a>
       <div class="source-list">${sources}</div>
     </section>
     ${lead ? `<section class="lead story" data-source="${escapeHtml(lead.source)}"><span class="meta">${escapeHtml(lead.source)} / ${escapeHtml(lead.published)}</span><h2><a href="${escapeHtml(safeUrl(lead.url))}" target="_blank" rel="noreferrer">${escapeHtml(lead.title)}</a></h2><p>${escapeHtml(shorten(lead.summary, 300))}</p></section>` : ""}
@@ -555,12 +458,13 @@ function storyCard(story: Story, index: number): string {
   return `<article class="card story" data-source="${escapeHtml(story.source)}"><span class="meta">${String(index).padStart(2, "0")} / ${escapeHtml(story.source)}</span><h3><a href="${escapeHtml(safeUrl(story.url))}" target="_blank" rel="noreferrer">${escapeHtml(story.title)}</a></h3><p>${escapeHtml(shorten(story.summary, 190))}</p></article>`;
 }
 
-async function tasksPage(env: Env): Promise<string> {
-  const body = `<section class="panel"><div id="tasks"></div></section><button class="fab" id="open">+</button><div class="modal" id="modal"><div class="modal-panel"><div class="modal-head"><h2 id="modal-title">Add Task</h2><button id="close">x</button></div><label>Task<input id="title" required></label><div class="row"><label>Due<input id="due" type="date"></label><label>Priority<select id="priority"><option value="normal">Normal</option><option value="high">High</option><option value="low">Low</option></select></label></div><label>Notes<textarea id="notes"></textarea></label><div class="button-row"><button id="save">Add task</button><button class="secondary" id="clear">Clear form</button></div><p class="meta" id="status"></p></div></div>`;
+async function ticketsPage(): Promise<string> {
+  const tableUrl = `https://${QUICKBASE_REALM}/db/${QUICKBASE_TICKETS_TABLE}`;
+  const body = `<section class="panel"><h2>Quickbase Tickets</h2><p id="ticket-status">Connecting to Quickbase with your browser session...</p><a href="${tableUrl}" target="_blank" rel="noreferrer">Open ticket table</a></section><section class="grid two ticket-list" id="ticket-list"></section><div class="modal" id="ticket-modal"><div class="modal-panel"><div class="modal-head"><h2 id="ticket-title">Ticket</h2><button id="ticket-close">x</button></div><div id="ticket-detail" class="ticket-detail"></div></div></div>`;
   const script = `
-let list=[],editing=null;const modal=document.getElementById("modal"),title=document.getElementById("title"),due=document.getElementById("due"),priority=document.getElementById("priority"),notes=document.getElementById("notes"),status=document.getElementById("status");const sections=[["today","Today"],["this-week","This Week"],["next-week","Next Week"],["next-month","Next Month"],["completed","Complete"]];const collapsed=new Set(["completed"]);function ref(id){return String(id||"").slice(0,8)||"unknown"}function day(v=new Date()){const d=new Date(v);d.setHours(0,0,0,0);return d}function add(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}function endWeek(d){const x=day(d);x.setDate(x.getDate()+7-x.getDay());return x}function bucket(t){if(t.done)return"completed";const today=day(),due=t.due?day(t.due+"T00:00:00"):null;if(!due||due<=today)return"today";const end=endWeek(today);if(due<=end)return"this-week";if(due<=add(end,7))return"next-week";return"next-month"}function card(t){return '<article class="card task-card '+(t.done?"done":"")+'" data-id="'+t.id+'"><input type="checkbox" '+(t.done?"checked":"")+'><div><h3>'+esc(t.title)+'</h3><div><span class="pill '+esc(t.priority)+'">'+esc(t.priority)+'</span>'+(t.due?'<span class="pill">Due '+esc(t.due)+'</span>':"")+'</div>'+(t.notes?'<p>'+esc(t.notes)+'</p>':"")+'</div><button class="delete">x</button></article>'}function render(){const groups=Object.fromEntries(sections.map(s=>[s[0],[]]));list.forEach(t=>groups[bucket(t)].push(t));document.getElementById("tasks").innerHTML=sections.map(([id,label])=>'<section class="'+(collapsed.has(id)?"collapsed ":"")+'task-section" data-section="'+id+'"><button class="section-toggle"><span>'+label+'</span><span>'+groups[id].length+'</span></button><div class="section-body">'+(groups[id].length?groups[id].map(card).join(""):'<div class="empty">No tasks here.</div>')+'</div></section>').join("");mdLog("tasks.rendered",{total:list.length,open:list.filter(t=>!t.done).length,complete:list.filter(t=>t.done).length})}async function load(){list=await(await mdFetch("/api/tasks")).json();mdLog("tasks.loaded",{total:list.length});render()}function open(t=null){editing=t?.id||null;document.getElementById("modal-title").textContent=t?"Edit Task":"Add Task";document.getElementById("save").textContent=t?"Save task":"Add task";title.value=t?.title||"";due.value=t?.due||"";priority.value=t?.priority||"normal";notes.value=t?.notes||"";modal.classList.add("open");mdLog(t?"task.edit_opened":"task.add_opened",{taskId:t?ref(t.id):null});title.focus()}function close(){modal.classList.remove("open");editing=null;title.value="";due.value="";priority.value="normal";notes.value="";status.textContent="";mdLog("task.modal_closed")}async function save(){if(!title.value.trim()){status.textContent="Add a task title first.";mdLog("task.save_blocked",{reason:"missing_title"});return}const existing=list.find(t=>t.id===editing);const payload={id:editing||crypto.randomUUID(),title:title.value.trim(),due:due.value,priority:priority.value,notes:notes.value.trim(),done:existing?.done||false,createdAt:existing?.createdAt||new Date().toISOString()};mdLog(editing?"task.save_started":"task.create_started",{taskId:editing?ref(editing):null,priority:payload.priority,hasDueDate:Boolean(payload.due)});list=await(await mdFetch("/api/tasks",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)})).json();mdLog(editing?"task.save_completed":"task.create_completed",{taskId:ref(payload.id),total:list.length});close();render()}document.getElementById("open").onclick=()=>open();document.getElementById("close").onclick=close;document.getElementById("clear").onclick=()=>{title.value="";due.value="";priority.value="normal";notes.value="";mdLog("task.form_cleared")};document.getElementById("save").onclick=save;modal.addEventListener("click",e=>{if(e.target===modal)close()});document.getElementById("tasks").addEventListener("click",async e=>{const section=e.target.closest(".section-toggle");if(section){const id=section.closest(".task-section").dataset.section;collapsed.has(id)?collapsed.delete(id):collapsed.add(id);mdLog("tasks.section_toggled",{section:id,collapsed:collapsed.has(id)});render();return}const del=e.target.closest(".delete");const cardEl=e.target.closest(".task-card");if(del&&cardEl){mdLog("task.delete_started",{taskId:ref(cardEl.dataset.id)});list=await(await mdFetch("/api/tasks/"+cardEl.dataset.id,{method:"DELETE"})).json();mdLog("task.delete_completed",{taskId:ref(cardEl.dataset.id),total:list.length});render();return}if(e.target.type==="checkbox"&&cardEl){const t=list.find(x=>x.id===cardEl.dataset.id);t.done=e.target.checked;mdLog(t.done?"task.complete_started":"task.reopen_started",{taskId:ref(t.id)});list=await(await mdFetch("/api/tasks",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(t)})).json();mdLog(t.done?"task.complete_completed":"task.reopen_completed",{taskId:ref(t.id),total:list.length});render();return}if(cardEl)open(list.find(x=>x.id===cardEl.dataset.id))});load();
+const realm="${QUICKBASE_REALM}",tableId="${QUICKBASE_TICKETS_TABLE}",fields={rid:3,app:11,submitter:20,issue:6};let tickets=[];const status=document.getElementById("ticket-status"),listEl=document.getElementById("ticket-list"),modal=document.getElementById("ticket-modal"),detail=document.getElementById("ticket-detail");function value(cell){const v=cell&&Object.prototype.hasOwnProperty.call(cell,"value")?cell.value:cell;if(Array.isArray(v))return v.map(value).filter(Boolean).join(", ");if(v&&typeof v==="object")return v.fullName||v.name||v.email||v.label||v.id||JSON.stringify(v);return v==null?"":String(v)}function recordUrl(t){return "https://"+realm+"/db/"+tableId+"?a=dr&rid="+encodeURIComponent(t.rid)}function normalize(row){const rid=value(row[String(fields.rid)]);return{rid,app:value(row[String(fields.app)]),submitter:value(row[String(fields.submitter)]),issue:value(row[String(fields.issue)]),url:recordUrl({rid})}}async function getTempToken(){mdLog("tickets.temp_token_started",{realm,tableId});const response=await mdFetch("https://api.quickbase.com/v1/auth/temporary/"+tableId,{method:"GET",credentials:"include",headers:{"QB-Realm-Hostname":realm}});if(!response.ok)throw new Error("Quickbase temporary token request failed with status "+response.status);const data=await response.json();const token=data.temporaryAuthorization||data.token;if(!token)throw new Error("Quickbase did not return a temporary token");mdLog("tickets.temp_token_received",{expiresInMinutes:5});return token}async function load(){try{const token=await getTempToken();mdLog("tickets.query_started",{tableId});const response=await mdFetch("https://api.quickbase.com/v1/records/query",{method:"POST",headers:{"Authorization":"QB-TEMP-TOKEN "+token,"QB-Realm-Hostname":realm,"Content-Type":"application/json"},body:JSON.stringify({from:tableId,select:[fields.rid,fields.app,fields.submitter,fields.issue],options:{top:100,sortBy:[{fieldId:fields.rid,order:"DESC"}]}})});if(!response.ok)throw new Error("Quickbase record query failed with status "+response.status);const data=await response.json();tickets=(data.data||[]).map(normalize).filter(t=>t.rid);status.textContent=tickets.length+" tickets loaded from Quickbase.";mdLog("tickets.loaded",{total:tickets.length});render()}catch(error){console.error("[Morning Dashboard]",{event:"tickets.load_failed",path:location.pathname,error:error.message||String(error)});status.textContent="Could not load tickets. Open this dashboard after signing into Quickbase, or host it as a Quickbase code page / POSTTempToken target if browser auth is blocked.";listEl.innerHTML='<div class="empty">Quickbase ticket access is unavailable from this browser session.</div>'}}function render(){listEl.innerHTML=tickets.map(t=>'<article class="card ticket-card" data-rid="'+esc(t.rid)+'"><span class="pill normal">Record '+esc(t.rid)+'</span><h3>'+esc(t.issue||"No issue text")+'</h3><div class="ticket-fields"><div class="ticket-field"><span class="meta">App</span>'+esc(t.app||"")+'</div><div class="ticket-field"><span class="meta">Submitter</span>'+esc(t.submitter||"")+'</div></div></article>').join("")||'<div class="empty">No tickets found.</div>'}function openTicket(t){document.getElementById("ticket-title").textContent="Ticket "+t.rid;detail.innerHTML='<div><span class="meta">Issue</span><p>'+esc(t.issue||"")+'</p></div><div class="row"><div><span class="meta">App</span><p>'+esc(t.app||"")+'</p></div><div><span class="meta">Submitter</span><p>'+esc(t.submitter||"")+'</p></div></div><a class="refresh" href="'+esc(t.url)+'" target="_blank" rel="noreferrer">Open record in Quickbase</a>';modal.classList.add("open");mdLog("tickets.detail_opened",{rid:t.rid})}function close(){modal.classList.remove("open");mdLog("tickets.detail_closed")}listEl.addEventListener("click",e=>{const card=e.target.closest(".ticket-card");if(!card)return;const ticket=tickets.find(t=>t.rid===card.dataset.rid);if(ticket)openTicket(ticket)});document.getElementById("ticket-close").onclick=close;modal.addEventListener("click",e=>{if(e.target===modal)close()});load();
 `;
-  return layout("Morning Tasks", "T", "Tasks", body, script);
+  return layout("Quickbase Tickets", "T", "Tickets", body, script);
 }
 
 async function releasesPage(): Promise<string> {
@@ -598,14 +502,13 @@ async function load(){
   const gmax=Math.max(100,d.page_loads||0,d.unique_stories_served||0,d.unique_release_notes_loaded||0,d.unique_company_news_loaded||0);
   document.getElementById("gauges").innerHTML=[gauge("Page Loads",d.page_loads,gmax),gauge("Unique Stories",d.unique_stories_served,gmax),gauge("Unique Releases",d.unique_release_notes_loaded,gmax),gauge("Unique Company News",d.unique_company_news_loaded,gmax)].join("");
   const avg=d.response_samples?Math.round((d.last_response_ms||0)/d.response_samples):0;
-  document.getElementById("stats").innerHTML=[stat("Avg Load",avg,"ms"),stat("Last Load",d.last_load_ms,"ms"),stat("API Samples",d.response_samples),stat("News Refreshes",d.news_refreshes),stat("Tasks Created",d.tasks_created),stat("Tasks Completed",d.tasks_completed),stat("Tasks Deleted",d.tasks_deleted),stat("Open Tasks",d.current_open_tasks)].join("");
+  document.getElementById("stats").innerHTML=[stat("Avg Load",avg,"ms"),stat("Last Load",d.last_load_ms,"ms"),stat("API Samples",d.response_samples),stat("News Refreshes",d.news_refreshes),stat("Unique Stories",d.unique_stories_served),stat("Unique Releases",d.unique_release_notes_loaded),stat("Unique Company News",d.unique_company_news_loaded),stat("Page Loads",d.page_loads)].join("");
   document.getElementById("bars").innerHTML=[
-    bars("Page Loads",[["News",d["page:News"]],["Tasks",d["page:Tasks"]],["Releases",d["page:Releases"]],["Company",d["page:Company"]],["Metrics",d["page:Metrics"]]]),
-    bars("API Calls",[["QB Status",d["api:quickbase-status"]],["Tasks",d["api:tasks"]],["Company",d["api:company-news"]],["Releases",d["api:quickbase-releases"]],["Tasks Save",d["api:tasks-save"]]]),
-    bars("Task Flow",[["Created",d.tasks_created],["Completed",d.tasks_completed],["Deleted",d.tasks_deleted],["Reopened",d.tasks_reopened]])
+    bars("Page Loads",[["News",d["page:News"]],["Tickets",d["page:Tickets"]],["Releases",d["page:Releases"]],["Company",d["page:Company"]],["Metrics",d["page:Metrics"]]]),
+    bars("API Calls",[["QB Status",d["api:quickbase-status"]],["Company",d["api:company-news"]],["Releases",d["api:quickbase-releases"]],["Metrics",d["api:metrics"]]])
   ].join("");
   document.getElementById("events").innerHTML=(d.events||[]).map(e=>'<p><strong>'+esc(e.label)+'</strong> <span class="meta">'+fmt(e.amount)+' / '+esc(e.created_at)+'</span></p>').join("")||'<p class="meta">No events yet.</p>';
-  document.getElementById("metrics-status").textContent="Updated "+d.generated+".";mdLog("metrics.loaded",{pageLoads:d.page_loads||0,openTasks:d.current_open_tasks||0,uniqueStories:d.unique_stories_served||0});
+  document.getElementById("metrics-status").textContent="Updated "+d.generated+".";mdLog("metrics.loaded",{pageLoads:d.page_loads||0,uniqueStories:d.unique_stories_served||0});
 }
 document.getElementById("refresh").onclick=()=>{mdLog("metrics.manual_refresh");load()};load();setInterval(()=>{mdLog("metrics.auto_refresh");load()},60000);
 `;
@@ -616,6 +519,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   const started = performance.now();
   const url = new URL(request.url);
   const path = url.pathname === "/" || url.pathname === "/dashboard.html" ? "/news.html" :
+    url.pathname === "/tasks.html" ? "/tickets.html" :
     url.pathname === "/releases.html" ? "/quickbase-releases.html" :
     url.pathname === "/company.html" ? "/company-news.html" : url.pathname;
 
@@ -624,28 +528,6 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     return Response.redirect(new URL(path, url.origin).toString(), 302);
   }
 
-  if (path === "/api/tasks") {
-    if (request.method === "GET") {
-      ctx.waitUntil(metric(env, "api:tasks"));
-      return json(await tasks(env), 200, 15);
-    }
-    const denied = requireWriteToken(request, env);
-    if (denied) {
-      logWarn("task.write_denied", { method: request.method, path });
-      return denied;
-    }
-    ctx.waitUntil(metric(env, "api:tasks-save"));
-    const payload = await request.json<Partial<Task>>();
-    return json(await upsertTask(env, payload));
-  }
-  if (path.startsWith("/api/tasks/") && request.method === "DELETE") {
-    const denied = requireWriteToken(request, env);
-    if (denied) {
-      logWarn("task.write_denied", { method: request.method, path: "/api/tasks/:id" });
-      return denied;
-    }
-    return json(await deleteTask(env, decodeURIComponent(path.replace("/api/tasks/", ""))));
-  }
   if (path === "/api/quickbase-status") {
     ctx.waitUntil(metric(env, "api:quickbase-status"));
     return json(await quickbaseStatus(), 200, 300);
@@ -658,9 +540,12 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     await metric(env, "api:company-news");
     return json(await companyNews(env), 200, 600);
   }
-  if (path === "/api/metrics") return json(await metrics(env), 200, 30);
+  if (path === "/api/metrics") {
+    ctx.waitUntil(metric(env, "api:metrics"));
+    return json(await metrics(env), 200, 30);
+  }
   if (path === "/api/refresh-news" && request.method === "POST") {
-    const denied = requireWriteToken(request, env);
+    const denied = requireAdminToken(request, env);
     if (denied) {
       logWarn("news.refresh_denied", { method: request.method, path });
       return denied;
@@ -670,7 +555,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 
   let body: string | null = null;
   if (path === "/news.html") body = await newsPage(env);
-  if (path === "/tasks.html") body = await tasksPage(env);
+  if (path === "/tickets.html") body = await ticketsPage();
   if (path === "/quickbase-releases.html") body = await releasesPage();
   if (path === "/company-news.html") body = await companyPage();
   if (path === "/metrics.html") body = metricsPage();

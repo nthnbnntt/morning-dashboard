@@ -207,12 +207,33 @@ Key changes:
 - Added browser DevTools console logging for page loads, API fetches, prefetches, pull refreshes, swipe navigation, news filters, task actions, release filters, company news loads, and metrics refreshes.
 - Kept logs privacy-conscious by avoiding task titles, notes, request bodies, tokens, and other sensitive payloads.
 
-## 14. Current Pages
+## 14. Tickets Page Conversion
+
+The former local task page was converted into a read-only Quickbase Tickets page.
+
+Key changes:
+
+- Replaced the `Tasks` nav item with `Tickets`.
+- Added `/tickets.html` as the canonical page and redirected old `/tasks.html` traffic to it.
+- Removed task creation, editing, completion, deletion, and task API routes from the Worker.
+- Removed the task table from the fresh D1 migration.
+- Added browser-side Quickbase temporary authorization for the table `bsmpv3zg4` in realm `vtg.quickbase.com`.
+- Queried ticket records using field IDs:
+  - `3`: Record ID
+  - `11`: App
+  - `20`: Submitter
+  - `6`: Issue
+- Rendered tickets as read-only cards.
+- Added a click-to-open ticket modal with App, Submitter, Issue, and a direct Quickbase record link.
+- Added browser console logs for temporary token retrieval, Quickbase record queries, ticket rendering, and modal open/close behavior.
+- Updated the metrics page to remove task completion/deletion displays and show ticket page loads instead.
+
+## 15. Current Pages
 
 The hosted dashboard currently serves:
 
 - `/news.html`
-- `/tasks.html`
+- `/tickets.html`
 - `/quickbase-releases.html`
 - `/company-news.html`
 - `/metrics.html`
@@ -223,9 +244,10 @@ The active hosted URL is:
 https://morning-dashboard.n8visions.workers.dev/news.html
 ```
 
-## 15. Current Notes
+## 16. Current Notes
 
-- Task writes are public by default while `TASK_WRITE_TOKEN` is empty.
+- Tickets are read-only and loaded through the user's Quickbase browser session using temporary authorization.
+- `ADMIN_WRITE_TOKEN` is empty by default and should be set before exposing admin-only write endpoints broadly.
 - The scheduled news refresh runs through Cloudflare cron and only refreshes when the current Eastern hour is 8 AM.
 - The dashboard still keeps a local-development path through Wrangler.
 - GitHub pushes to `main` trigger the Cloudflare deployment workflow.
