@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "morning-dashboard",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "triggers": {
+    "crons": ["0 12 * * *", "0 13 * * *"]
+  },
+  "vars": {
+    "APP_NAME": "Morning Dashboard",
+    "TASK_WRITE_TOKEN": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "morning-dashboard",
+      "database_id": "3a4f906c-2004-4e60-8586-c4d0c5593cff"
+    }
+  ]
+}
