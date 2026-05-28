@@ -339,7 +339,6 @@ var MorningDashboard = (() => {
     return `
     <article class="card ticket-card" data-rid="${esc(ticket.rid)}">
       <div class="ticket-card-head">
-        <span class="ticket-id">Ticket #${esc(ticket.rid)}</span>
         <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
       </div>
       <h3>${esc(ticket.app || "Unassigned app")}</h3>
