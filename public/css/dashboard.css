@@ -412,6 +412,12 @@ h1 {
   font-size: 1rem;
 }
 
+.ticket-issue {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .ticket-meta-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -437,7 +443,7 @@ h1 {
   margin-bottom: 6px;
 }
 
-.ticket-detail-summary h3 {
+.ticket-detail-summary .ticket-issue {
   margin: 0;
   line-height: 1.3;
 }

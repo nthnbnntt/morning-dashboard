@@ -94,32 +94,33 @@ function ticketCard(ticket) {
   return `
     <article class="card ticket-card" data-rid="${esc(ticket.rid)}">
       <div class="ticket-card-head">
-        <span class="ticket-id">#${esc(ticket.rid)}</span>
+        <span class="ticket-id">Ticket #${esc(ticket.rid)}</span>
         <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
       </div>
-      <h3>${esc(ticket.issue || "No issue text")}</h3>
+      <h3>${esc(ticket.app || "Unassigned app")}</h3>
+      <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
       <div class="ticket-meta-grid">
         <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
         <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
         <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
-        <div><span class="meta">App</span>${esc(ticket.app || "Unassigned")}</div>
+        <div><span class="meta">Ticket</span>#${esc(ticket.rid)}</div>
       </div>
     </article>
   `;
 }
 
 function openTicket(ticket) {
-  qs("#ticket-title").textContent = `Ticket ${ticket.rid}`;
+  qs("#ticket-title").textContent = ticket.app || "Unassigned app";
   qs("#ticket-detail").innerHTML = `
     <div class="ticket-detail-summary">
       <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
-      <span class="ticket-id">#${esc(ticket.rid)}</span>
-      <h3>${esc(ticket.issue || "No issue text")}</h3>
+      <span class="ticket-id">Ticket #${esc(ticket.rid)}</span>
+      <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
     </div>
     <div class="ticket-meta-grid">
       <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
       <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
-      <div><span class="meta">App</span>${esc(ticket.app || "Unassigned")}</div>
+      <div><span class="meta">Ticket</span>#${esc(ticket.rid)}</div>
       <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
     </div>
     <a class="refresh" href="${esc(safeUrl(ticket.url))}" target="_blank" rel="noreferrer">Open record in Quickbase</a>
