@@ -1,4 +1,4 @@
-import { empty, esc, getJson, safeUrl } from "./utils.js";
+import { cachedJson, empty, esc, safeUrl } from "./utils.js";
 
 function companyCard(record) {
   return `
@@ -21,7 +21,7 @@ export async function renderCompany(view) {
     </section>
     <section class="grid two company-list" id="company-list"></section>
   `;
-  const payload = await getJson("/api/company-news");
+  const payload = await cachedJson("/api/company-news");
   const records = payload.records || [];
   view.querySelector("#company-status").textContent = `${records.length} company stories loaded. Updated ${payload.generated}.`;
   view.querySelector("#company-list").innerHTML = records.map(companyCard).join("") || empty("No company stories are available.");

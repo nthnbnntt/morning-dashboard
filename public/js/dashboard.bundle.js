@@ -70,6 +70,48 @@ var MorningDashboard = (() => {
     }
     return response.json();
   }
+  var memoryJsonCache = /* @__PURE__ */ new Map();
+  var inFlightJson = /* @__PURE__ */ new Map();
+  function readStorageCache(key, ttlMs) {
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return null;
+      const cached = JSON.parse(raw);
+      if (!cached || Date.now() - cached.at > ttlMs) return null;
+      return cached.data;
+    } catch {
+      return null;
+    }
+  }
+  function writeStorageCache(key, data) {
+    try {
+      sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), data }));
+    } catch {
+    }
+  }
+  async function cachedJson(path, { ttlMs = 3e5, force = false } = {}) {
+    const key = `morning-dashboard:${path}`;
+    if (!force) {
+      const memory = memoryJsonCache.get(key);
+      if (memory && Date.now() - memory.at <= ttlMs) return memory.data;
+      const stored = readStorageCache(key, ttlMs);
+      if (stored) {
+        memoryJsonCache.set(key, { at: Date.now(), data: stored });
+        return stored;
+      }
+      if (inFlightJson.has(key)) return inFlightJson.get(key);
+    }
+    const request = getJson(path).then((data) => {
+      memoryJsonCache.set(key, { at: Date.now(), data });
+      writeStorageCache(key, data);
+      return data;
+    }).finally(() => inFlightJson.delete(key));
+    inFlightJson.set(key, request);
+    return request;
+  }
+  function prefetchJson(path, options = {}) {
+    cachedJson(path, options).catch((err) => mdLog("prefetch.failed", { path, error: err?.message || String(err) }));
+  }
   function formatNumber(value) {
     return Math.round(Number(value || 0)).toLocaleString();
   }
@@ -144,7 +186,7 @@ var MorningDashboard = (() => {
     </section>
     <section class="grid two company-list" id="company-list"></section>
   `;
-    const payload = await getJson("/api/company-news");
+    const payload = await cachedJson("/api/company-news");
     const records = payload.records || [];
     view.querySelector("#company-status").textContent = `${records.length} company stories loaded. Updated ${payload.generated}.`;
     view.querySelector("#company-list").innerHTML = records.map(companyCard).join("") || empty("No company stories are available.");
@@ -185,8 +227,8 @@ var MorningDashboard = (() => {
     </article>
   `;
   }
-  async function loadMetrics(view) {
-    const data = await getJson("/api/metrics");
+  async function loadMetrics(view, force = false) {
+    const data = await cachedJson("/api/metrics", { ttlMs: 6e4, force });
     const gmax = Math.max(
       100,
       data.page_loads || 0,
@@ -230,7 +272,7 @@ var MorningDashboard = (() => {
     <section class="grid two" id="bars"></section>
     <section class="grid two"><div class="card"><p class="meta">Recent Events</p><div id="events"></div></div></section>
   `;
-    view.querySelector("#refresh").addEventListener("click", () => loadMetrics(view));
+    view.querySelector("#refresh").addEventListener("click", () => loadMetrics(view, true));
     await loadMetrics(view);
   }
 
@@ -242,6 +284,30 @@ var MorningDashboard = (() => {
       return value.fullName || value.name || value.email || value.label || value.id || JSON.stringify(value);
     }
     return value == null ? "" : String(value);
+  }
+  var TICKET_CACHE_KEY = "morning-dashboard:quickbase-tickets";
+  var TICKET_CACHE_TTL_MS = 5 * 60 * 1e3;
+  var ticketMemoryCache = null;
+  var ticketRequest = null;
+  function readTicketCache() {
+    if (ticketMemoryCache && Date.now() - ticketMemoryCache.at <= TICKET_CACHE_TTL_MS) return ticketMemoryCache.tickets;
+    try {
+      const raw = sessionStorage.getItem(TICKET_CACHE_KEY);
+      if (!raw) return null;
+      const cached = JSON.parse(raw);
+      if (!cached || Date.now() - cached.at > TICKET_CACHE_TTL_MS || !Array.isArray(cached.tickets)) return null;
+      ticketMemoryCache = cached;
+      return cached.tickets;
+    } catch {
+      return null;
+    }
+  }
+  function writeTicketCache(tickets) {
+    ticketMemoryCache = { at: Date.now(), tickets };
+    try {
+      sessionStorage.setItem(TICKET_CACHE_KEY, JSON.stringify(ticketMemoryCache));
+    } catch {
+    }
   }
   function recordUrl(ticket) {
     const cfg = config();
@@ -325,7 +391,7 @@ var MorningDashboard = (() => {
     if (!token) throw new Error("Quickbase did not return a temporary token");
     return token;
   }
-  async function loadTickets() {
+  async function fetchTickets() {
     const cfg = config();
     const fields = cfg.quickbaseTicketFields || {};
     const token = await getTemporaryToken();
@@ -349,6 +415,23 @@ var MorningDashboard = (() => {
     if (!response.ok) throw new Error(`Quickbase record query failed with status ${response.status}`);
     const data = await response.json();
     return (data.data || []).map(normalizeTicket).filter((ticket) => ticket.rid);
+  }
+  async function loadTickets({ force = false } = {}) {
+    if (!force) {
+      const cached = readTicketCache();
+      if (cached) return cached;
+      if (ticketRequest) return ticketRequest;
+    }
+    ticketRequest = fetchTickets().then((tickets) => {
+      writeTicketCache(tickets);
+      return tickets;
+    }).finally(() => {
+      ticketRequest = null;
+    });
+    return ticketRequest;
+  }
+  function prefetchTickets() {
+    loadTickets().catch((err) => mdLog("tickets.prefetch_failed", { error: err?.message || String(err) }));
   }
   function ticketCard(ticket) {
     return `
@@ -661,7 +744,7 @@ var MorningDashboard = (() => {
     </section>
     <section class="grid two" id="release-list"></section>
   `;
-    const payload = await getJson("/api/quickbase-releases");
+    const payload = await cachedJson("/api/quickbase-releases");
     const records = payload.records || [];
     let filter = "all";
     function show(record) {
@@ -708,7 +791,16 @@ var MorningDashboard = (() => {
       view.innerHTML = error(err?.message || "The dashboard could not render this view.");
     }
   }
+  function prefetchDashboardData() {
+    prefetchTickets();
+    prefetchJson("/api/quickbase-releases");
+    prefetchJson("/api/company-news");
+    prefetchJson("/api/metrics", { ttlMs: 6e4 });
+  }
   window.addEventListener("hashchange", renderRoute);
   setInterval(tick, 3e4);
-  renderRoute();
+  renderRoute().finally(() => {
+    if ("requestIdleCallback" in window) requestIdleCallback(prefetchDashboardData, { timeout: 2500 });
+    else setTimeout(prefetchDashboardData, 1e3);
+  });
 })();

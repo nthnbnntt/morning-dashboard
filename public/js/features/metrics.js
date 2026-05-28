@@ -1,4 +1,4 @@
-import { esc, formatNumber, getJson } from "./utils.js";
+import { cachedJson, esc, formatNumber } from "./utils.js";
 
 function gauge(label, value, max) {
   const pct = max ? Math.max(0, Math.min(100, Number(value || 0) / max * 100)) : 0;
@@ -37,8 +37,8 @@ function bars(title, rows) {
   `;
 }
 
-async function loadMetrics(view) {
-  const data = await getJson("/api/metrics");
+async function loadMetrics(view, force = false) {
+  const data = await cachedJson("/api/metrics", { ttlMs: 60000, force });
   const gmax = Math.max(
     100,
     data.page_loads || 0,
@@ -83,6 +83,6 @@ export async function renderMetrics(view) {
     <section class="grid two" id="bars"></section>
     <section class="grid two"><div class="card"><p class="meta">Recent Events</p><div id="events"></div></div></section>
   `;
-  view.querySelector("#refresh").addEventListener("click", () => loadMetrics(view));
+  view.querySelector("#refresh").addEventListener("click", () => loadMetrics(view, true));
   await loadMetrics(view);
 }

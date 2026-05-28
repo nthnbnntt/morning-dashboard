@@ -9,6 +9,34 @@ function cellValue(cell) {
   return value == null ? "" : String(value);
 }
 
+const TICKET_CACHE_KEY = "morning-dashboard:quickbase-tickets";
+const TICKET_CACHE_TTL_MS = 5 * 60 * 1000;
+let ticketMemoryCache = null;
+let ticketRequest = null;
+
+function readTicketCache() {
+  if (ticketMemoryCache && Date.now() - ticketMemoryCache.at <= TICKET_CACHE_TTL_MS) return ticketMemoryCache.tickets;
+  try {
+    const raw = sessionStorage.getItem(TICKET_CACHE_KEY);
+    if (!raw) return null;
+    const cached = JSON.parse(raw);
+    if (!cached || Date.now() - cached.at > TICKET_CACHE_TTL_MS || !Array.isArray(cached.tickets)) return null;
+    ticketMemoryCache = cached;
+    return cached.tickets;
+  } catch {
+    return null;
+  }
+}
+
+function writeTicketCache(tickets) {
+  ticketMemoryCache = { at: Date.now(), tickets };
+  try {
+    sessionStorage.setItem(TICKET_CACHE_KEY, JSON.stringify(ticketMemoryCache));
+  } catch {
+    // Browser storage may be unavailable; the in-memory cache still helps.
+  }
+}
+
 function recordUrl(ticket) {
   const cfg = config();
   return `https://${cfg.quickbaseRealm}/nav/app/${cfg.quickbaseTicketsApp}/table/${cfg.quickbaseTicketsTable}/action/dr?rid=${encodeURIComponent(ticket.rid)}`;
@@ -99,7 +127,7 @@ async function getTemporaryToken() {
   return token;
 }
 
-export async function loadTickets() {
+async function fetchTickets() {
   const cfg = config();
   const fields = cfg.quickbaseTicketFields || {};
   const token = await getTemporaryToken();
@@ -123,6 +151,25 @@ export async function loadTickets() {
   if (!response.ok) throw new Error(`Quickbase record query failed with status ${response.status}`);
   const data = await response.json();
   return (data.data || []).map(normalizeTicket).filter((ticket) => ticket.rid);
+}
+
+export async function loadTickets({ force = false } = {}) {
+  if (!force) {
+    const cached = readTicketCache();
+    if (cached) return cached;
+    if (ticketRequest) return ticketRequest;
+  }
+  ticketRequest = fetchTickets().then((tickets) => {
+    writeTicketCache(tickets);
+    return tickets;
+  }).finally(() => {
+    ticketRequest = null;
+  });
+  return ticketRequest;
+}
+
+export function prefetchTickets() {
+  loadTickets().catch((err) => mdLog("tickets.prefetch_failed", { error: err?.message || String(err) }));
 }
 
 function ticketCard(ticket) {

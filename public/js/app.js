@@ -3,8 +3,8 @@ import { renderMetrics } from "./features/metrics.js";
 import { renderNews } from "./features/news.js";
 import { currentRoute, renderShell, tick, trackRouteLoad } from "./features/navigation.js";
 import { renderReleases } from "./features/releases.js";
-import { renderTickets } from "./features/tickets.js";
-import { error, mdLog, qs } from "./features/utils.js";
+import { prefetchTickets, renderTickets } from "./features/tickets.js";
+import { error, mdLog, prefetchJson, qs } from "./features/utils.js";
 
 const renderers = {
   news: renderNews,
@@ -30,6 +30,16 @@ async function renderRoute() {
   }
 }
 
+function prefetchDashboardData() {
+  prefetchTickets();
+  prefetchJson("/api/quickbase-releases");
+  prefetchJson("/api/company-news");
+  prefetchJson("/api/metrics", { ttlMs: 60000 });
+}
+
 window.addEventListener("hashchange", renderRoute);
 setInterval(tick, 30000);
-renderRoute();
+renderRoute().finally(() => {
+  if ("requestIdleCallback" in window) requestIdleCallback(prefetchDashboardData, { timeout: 2500 });
+  else setTimeout(prefetchDashboardData, 1000);
+});

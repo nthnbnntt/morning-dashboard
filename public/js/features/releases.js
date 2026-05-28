@@ -1,4 +1,4 @@
-import { empty, esc, getJson, qsa, safeUrl, statusOfRelease } from "./utils.js";
+import { cachedJson, empty, esc, qsa, safeUrl, statusOfRelease } from "./utils.js";
 
 function releaseCard(record) {
   const status = statusOfRelease(record);
@@ -28,7 +28,7 @@ export async function renderReleases(view) {
     </section>
     <section class="grid two" id="release-list"></section>
   `;
-  const payload = await getJson("/api/quickbase-releases");
+  const payload = await cachedJson("/api/quickbase-releases");
   const records = payload.records || [];
   let filter = "all";
 

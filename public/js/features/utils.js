@@ -77,6 +77,55 @@ export async function getJson(path, options = {}) {
   return response.json();
 }
 
+const memoryJsonCache = new Map();
+const inFlightJson = new Map();
+
+function readStorageCache(key, ttlMs) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const cached = JSON.parse(raw);
+    if (!cached || Date.now() - cached.at > ttlMs) return null;
+    return cached.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorageCache(key, data) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), data }));
+  } catch {
+    // Storage can be full or unavailable in hardened browser contexts.
+  }
+}
+
+export async function cachedJson(path, { ttlMs = 300000, force = false } = {}) {
+  const key = `morning-dashboard:${path}`;
+  if (!force) {
+    const memory = memoryJsonCache.get(key);
+    if (memory && Date.now() - memory.at <= ttlMs) return memory.data;
+    const stored = readStorageCache(key, ttlMs);
+    if (stored) {
+      memoryJsonCache.set(key, { at: Date.now(), data: stored });
+      return stored;
+    }
+    if (inFlightJson.has(key)) return inFlightJson.get(key);
+  }
+
+  const request = getJson(path).then((data) => {
+    memoryJsonCache.set(key, { at: Date.now(), data });
+    writeStorageCache(key, data);
+    return data;
+  }).finally(() => inFlightJson.delete(key));
+  inFlightJson.set(key, request);
+  return request;
+}
+
+export function prefetchJson(path, options = {}) {
+  cachedJson(path, options).catch((err) => mdLog("prefetch.failed", { path, error: err?.message || String(err) }));
+}
+
 export function formatNumber(value) {
   return Math.round(Number(value || 0)).toLocaleString();
 }
