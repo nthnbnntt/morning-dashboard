@@ -445,9 +445,15 @@ h1 {
 
 .ticket-card-head {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ticket-card-head .pill {
+  flex: 0 0 auto;
+  margin: 0;
 }
 
 .ticket-id {
@@ -541,6 +547,7 @@ h1 {
 .ticket-card h3 {
   margin: 0;
   font-size: 1rem;
+  min-width: 0;
 }
 
 .ticket-issue {

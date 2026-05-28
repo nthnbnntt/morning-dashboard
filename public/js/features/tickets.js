@@ -177,8 +177,8 @@ function ticketCard(ticket) {
     <article class="card ticket-card" data-rid="${esc(ticket.rid)}">
       <div class="ticket-card-head">
         <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
+        <h3>${esc(ticket.app || "Unassigned app")}</h3>
       </div>
-      <h3>${esc(ticket.app || "Unassigned app")}</h3>
       <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
       <div class="ticket-meta-grid">
         <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
