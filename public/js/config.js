@@ -11,6 +11,7 @@
     quickbaseRealm: "vtg.quickbase.com",
     quickbaseTicketsApp: "br35mavda",
     quickbaseTicketsTable: "bsmpv3zg4",
+    quickbaseTicketTokenDbid: "bsmpv3zg4",
     quickbaseTicketFields: {
       rid: 3,
       app: 11,

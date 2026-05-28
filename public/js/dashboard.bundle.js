@@ -485,9 +485,10 @@ var MorningDashboard = (() => {
     mdLog("tickets.temp_token_started", {
       realm: cfg.quickbaseRealm,
       appId: cfg.quickbaseTicketsApp,
-      tableId: cfg.quickbaseTicketsTable
+      tableId: cfg.quickbaseTicketsTable,
+      tokenDbid: cfg.quickbaseTicketTokenDbid || cfg.quickbaseTicketsTable
     });
-    const response = await mdFetch(`https://api.quickbase.com/v1/auth/temporary/${cfg.quickbaseTicketsApp}`, {
+    const response = await mdFetch(`https://api.quickbase.com/v1/auth/temporary/${cfg.quickbaseTicketTokenDbid || cfg.quickbaseTicketsTable}`, {
       method: "GET",
       credentials: "include",
       headers: { "QB-Realm-Hostname": cfg.quickbaseRealm }
