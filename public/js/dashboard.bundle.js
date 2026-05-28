@@ -273,7 +273,7 @@ var MorningDashboard = (() => {
     });
   }
   async function renderNews(view) {
-    const payload = await getJson("/api/news");
+    const payload = await getJson(`/api/news?refresh=1&t=${Date.now()}`);
     const stories = payload.stories || [];
     const [lead, ...rest] = stories;
     if (!stories.length) {
@@ -496,6 +496,26 @@ var MorningDashboard = (() => {
     if (normalized.includes("progress") || normalized.includes("pending")) return "low";
     return "released";
   }
+  function statusCounts(tickets) {
+    return tickets.reduce((counts, ticket) => {
+      const status = String(ticket.status || "No status").trim() || "No status";
+      counts.set(status, (counts.get(status) || 0) + 1);
+      return counts;
+    }, /* @__PURE__ */ new Map());
+  }
+  function ticketStatusSummary(tickets) {
+    const counts = Array.from(statusCounts(tickets).entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return `
+    <div class="ticket-summary" aria-label="Tickets by status">
+      ${counts.map(([status, count]) => `
+        <div class="ticket-summary-item">
+          <span class="pill ${esc(statusClass(status))}">${esc(status)}</span>
+          <strong>${count.toLocaleString()}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+  }
   async function getTemporaryToken() {
     const cfg = config();
     mdLog("tickets.temp_token_started", {
@@ -583,6 +603,7 @@ var MorningDashboard = (() => {
     <section class="panel">
       <h2>Quickbase Tickets</h2>
       <p id="ticket-status">Connecting to Quickbase with your browser session...</p>
+      <div id="ticket-summary"></div>
       <a href="${esc(tableUrl)}" target="_blank" rel="noreferrer">Open ticket table</a>
     </section>
     <section class="ticket-list" id="ticket-list"></section>
@@ -596,6 +617,7 @@ var MorningDashboard = (() => {
     try {
       const tickets = await loadTickets();
       qs("#ticket-status").textContent = `${tickets.length} tickets loaded from Quickbase.`;
+      qs("#ticket-summary").innerHTML = ticketStatusSummary(tickets);
       qs("#ticket-list").innerHTML = tickets.map(ticketCard).join("") || empty("No tickets found.");
       qs("#ticket-list").addEventListener("click", (event) => {
         const card = event.target.closest(".ticket-card");

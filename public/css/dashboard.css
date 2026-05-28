@@ -407,6 +407,30 @@ h1 {
   letter-spacing: 0.08em;
 }
 
+.ticket-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ticket-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 8px 10px;
+}
+
+.ticket-summary-item .pill {
+  margin: 0;
+}
+
+.ticket-summary-item strong {
+  font-size: 1.05rem;
+}
+
 .ticket-card h3 {
   margin: 0;
   font-size: 1rem;

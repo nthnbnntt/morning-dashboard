@@ -41,7 +41,7 @@ function enableSourceFilters(root) {
 }
 
 export async function renderNews(view) {
-  const payload = await getJson("/api/news");
+  const payload = await getJson(`/api/news?refresh=1&t=${Date.now()}`);
   const stories = payload.stories || [];
   const [lead, ...rest] = stories;
   if (!stories.length) {

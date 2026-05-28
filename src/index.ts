@@ -433,6 +433,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 
   if (path === "/api/news" && request.method === "GET") {
     ctx.waitUntil(metric(env, "api:news"));
+    if (url.searchParams.get("refresh") === "1") {
+      const stories = await refreshNews(env);
+      return json(request, { stories, refreshedAt: nowIso() });
+    }
     return json(request, await cachedStories(env), 200, 120);
   }
   if (path === "/api/quickbase-status" && request.method === "GET") {
