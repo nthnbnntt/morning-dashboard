@@ -48,10 +48,10 @@ function ticketStatusSummary(tickets) {
     <span class="meta">Tickets</span>
     <div class="ticket-summary compact" aria-label="Tickets by status">
       ${counts.map(([status, count]) => `
-        <div class="ticket-summary-item">
+        <a class="ticket-summary-item" href="#tickets?status=${encodeURIComponent(status)}">
           <strong>${count.toLocaleString()}</strong>
           <span class="ticket-status-label ${esc(statusClass(status))}">${esc(status)}</span>
-        </div>
+        </a>
       `).join("")}
     </div>
   `;
@@ -85,7 +85,7 @@ export async function renderNews(view) {
         <span class="meta" id="qb-detail">Checking status...</span>
         <a id="qb-link" class="text-link" href="https://quickbasestatus.status.page/#!/" target="_blank" rel="noreferrer">Open</a>
       </div>
-      <a class="card ticket-news-card" id="news-ticket-summary" href="#tickets"><span class="meta">Tickets</span><h2>Loading...</h2></a>
+      <div class="card ticket-news-card" id="news-ticket-summary"><span class="meta">Tickets</span><h2>Loading...</h2></div>
       <div class="source-list">${sourceButtons(stories)}</div>
     </section>
     ${lead ? `

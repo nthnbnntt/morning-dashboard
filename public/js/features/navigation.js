@@ -9,7 +9,7 @@ export const pages = [
 ];
 
 export function currentRoute() {
-  const route = location.hash.replace(/^#\/?/, "") || "news";
+  const route = (location.hash.replace(/^#\/?/, "").split("?")[0] || "news");
   return pages.some((page) => page.id === route) ? route : "news";
 }
 

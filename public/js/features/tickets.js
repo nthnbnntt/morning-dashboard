@@ -63,6 +63,12 @@ function ticketStatusFilters(tickets) {
   `;
 }
 
+function initialStatusFilter(tickets) {
+  const query = location.hash.split("?")[1] || "";
+  const status = new URLSearchParams(query).get("status") || "";
+  return tickets.some((ticket) => ticket.status === status) ? status : "";
+}
+
 async function getTemporaryToken() {
   const cfg = config();
   mdLog("tickets.temp_token_started", {
@@ -169,7 +175,7 @@ export async function renderTickets(view) {
     const tickets = await loadTickets();
     qs("#ticket-status").textContent = `${tickets.length} tickets loaded from Quickbase.`;
     qs("#ticket-filters").innerHTML = ticketStatusFilters(tickets);
-    let filter = "";
+    let filter = initialStatusFilter(tickets);
 
     function shown(ticket) {
       return !filter || ticket.status === filter;
@@ -181,6 +187,7 @@ export async function renderTickets(view) {
     }
 
     qsa(".ticket-filters button", view).forEach((button) => {
+      button.classList.toggle("active", button.dataset.filter === filter);
       button.addEventListener("click", () => {
         filter = filter === button.dataset.filter ? "" : button.dataset.filter;
         qsa(".ticket-filters button", view).forEach((item) => item.classList.toggle("active", item.dataset.filter === filter));

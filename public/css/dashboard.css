@@ -432,7 +432,13 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--paper);
+  color: inherit;
   padding: 8px 10px;
+  text-decoration: none;
+}
+
+.ticket-summary-item:hover {
+  border-color: rgba(15, 118, 110, 0.45);
 }
 
 .ticket-summary-item .pill {

@@ -291,6 +291,11 @@ var MorningDashboard = (() => {
     </div>
   `;
   }
+  function initialStatusFilter(tickets) {
+    const query = location.hash.split("?")[1] || "";
+    const status = new URLSearchParams(query).get("status") || "";
+    return tickets.some((ticket) => ticket.status === status) ? status : "";
+  }
   async function getTemporaryToken() {
     const cfg = config();
     mdLog("tickets.temp_token_started", {
@@ -399,8 +404,9 @@ var MorningDashboard = (() => {
       const tickets = await loadTickets();
       qs("#ticket-status").textContent = `${tickets.length} tickets loaded from Quickbase.`;
       qs("#ticket-filters").innerHTML = ticketStatusFilters(tickets);
-      let filter = "";
+      let filter = initialStatusFilter(tickets);
       qsa(".ticket-filters button", view).forEach((button) => {
+        button.classList.toggle("active", button.dataset.filter === filter);
         button.addEventListener("click", () => {
           filter = filter === button.dataset.filter ? "" : button.dataset.filter;
           qsa(".ticket-filters button", view).forEach((item) => item.classList.toggle("active", item.dataset.filter === filter));
@@ -467,10 +473,10 @@ var MorningDashboard = (() => {
     <span class="meta">Tickets</span>
     <div class="ticket-summary compact" aria-label="Tickets by status">
       ${counts.map(([status, count]) => `
-        <div class="ticket-summary-item">
+        <a class="ticket-summary-item" href="#tickets?status=${encodeURIComponent(status)}">
           <strong>${count.toLocaleString()}</strong>
           <span class="ticket-status-label ${esc(statusClass(status))}">${esc(status)}</span>
-        </div>
+        </a>
       `).join("")}
     </div>
   `;
@@ -501,7 +507,7 @@ var MorningDashboard = (() => {
         <span class="meta" id="qb-detail">Checking status...</span>
         <a id="qb-link" class="text-link" href="https://quickbasestatus.status.page/#!/" target="_blank" rel="noreferrer">Open</a>
       </div>
-      <a class="card ticket-news-card" id="news-ticket-summary" href="#tickets"><span class="meta">Tickets</span><h2>Loading...</h2></a>
+      <div class="card ticket-news-card" id="news-ticket-summary"><span class="meta">Tickets</span><h2>Loading...</h2></div>
       <div class="source-list">${sourceButtons(stories)}</div>
     </section>
     ${lead ? `
@@ -529,7 +535,7 @@ var MorningDashboard = (() => {
     { id: "metrics", label: "Metrics", title: "Dashboard Metrics", mark: "M" }
   ];
   function currentRoute() {
-    const route = location.hash.replace(/^#\/?/, "") || "news";
+    const route = location.hash.replace(/^#\/?/, "").split("?")[0] || "news";
     return pages.some((page) => page.id === route) ? route : "news";
   }
   function renderShell(route) {
