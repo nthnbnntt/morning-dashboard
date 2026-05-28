@@ -1,6 +1,8 @@
 # Morning Dashboard on Cloudflare
 
-This is the deployable Cloudflare Worker version of the Morning Dashboard.
+Hosted Morning Dashboard with connection to Quickbase API, company news, tasks, metrics, and morning news.
+
+This is the deployable Cloudflare Worker version of the local Morning Dashboard prototype.
 
 It serves:
 
