@@ -247,13 +247,11 @@ var MorningDashboard = (() => {
     const data = await cachedJson("/api/metrics", { ttlMs: 6e4, force });
     const gmax = Math.max(
       100,
-      data.page_loads || 0,
       data.unique_stories_served || 0,
       data.unique_release_notes_loaded || 0,
       data.unique_company_news_loaded || 0
     );
     view.querySelector("#gauges").innerHTML = [
-      gauge("Page Loads", data.page_loads, gmax),
       gauge("Unique Stories", data.unique_stories_served, gmax),
       gauge("Unique Releases", data.unique_release_notes_loaded, gmax),
       gauge("Unique Company News", data.unique_company_news_loaded, gmax)
@@ -271,9 +269,6 @@ var MorningDashboard = (() => {
       bars("Page Loads", [["News", data["page:News"]], ["Tickets", data["page:Tickets"]], ["Releases", data["page:Releases"]], ["Company", data["page:Company"]], ["Metrics", data["page:Metrics"]]]),
       bars("API Calls", [["News", data["api:news"]], ["QB Status", data["api:quickbase-status"]], ["Company", data["api:company-news"]], ["Releases", data["api:quickbase-releases"]], ["Metrics", data["api:metrics"]]])
     ].join("");
-    view.querySelector("#events").innerHTML = (data.events || []).map((event) => `
-    <p><strong>${esc(event.label)}</strong> <span class="meta">${formatNumber(event.amount)} / ${esc(event.created_at)}</span></p>
-  `).join("") || '<p class="meta">No events yet.</p>';
     view.querySelector("#metrics-status").textContent = `Updated ${data.generated}.`;
   }
   async function renderMetrics(view) {
@@ -286,7 +281,6 @@ var MorningDashboard = (() => {
     <section class="grid" id="gauges"></section>
     <section class="grid two" id="stats"></section>
     <section class="grid two" id="bars"></section>
-    <section class="grid two"><div class="card"><p class="meta">Recent Events</p><div id="events"></div></div></section>
   `;
     view.querySelector("#refresh").addEventListener("click", () => loadMetrics(view, true));
     await loadMetrics(view);
