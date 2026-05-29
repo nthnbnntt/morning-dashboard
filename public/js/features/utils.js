@@ -135,17 +135,35 @@ export function displayDate(date = new Date()) {
     weekday: "long",
     month: "long",
     day: "numeric",
-    year: "numeric",
-    timeZone: "America/New_York"
+    year: "numeric"
   }).format(date);
 }
 
 export function displayTime(date = new Date()) {
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
-    minute: "2-digit",
-    timeZone: "America/New_York"
+    minute: "2-digit"
   }).format(date);
+}
+
+export function displayTimeZone(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" }).formatToParts(date);
+  return parts.find((part) => part.type === "timeZoneName")?.value || "";
+}
+
+export function displayDateTime(value) {
+  if (!value) return "date unavailable";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const timestamp = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short"
+  }).format(date);
+  return timestamp.replace(",", "");
 }
 
 export function empty(message) {

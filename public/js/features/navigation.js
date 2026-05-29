@@ -1,4 +1,4 @@
-import { config, displayDate, displayTime, esc, mdFetch, mdLog, routePath, qs } from "./utils.js";
+import { config, displayDate, displayTime, displayTimeZone, esc, mdFetch, mdLog, routePath, qs } from "./utils.js";
 
 export const pages = [
   { id: "news", label: "News", title: "Morning Briefing", mark: "M" },
@@ -29,7 +29,7 @@ export function renderShell(route) {
         <nav class="nav" aria-label="Dashboard pages">
           ${pages.map((item) => `<a href="#${item.id}"${item.id === route ? ' aria-current="page"' : ""}>${esc(item.label)}</a>`).join("")}
         </nav>
-        <div class="clock"><strong id="clock">${esc(displayTime())}</strong><span>ET</span></div>
+        <div class="clock"><strong id="clock">${esc(displayTime())}</strong><span id="clock-zone">${esc(displayTimeZone())}</span></div>
       </header>
       <div class="scroll-area" id="view" tabindex="-1"></div>
     </main>
@@ -42,6 +42,8 @@ export function renderShell(route) {
 export function tick() {
   const clock = qs("#clock");
   if (clock) clock.textContent = displayTime();
+  const zone = qs("#clock-zone");
+  if (zone) zone.textContent = displayTimeZone();
 }
 
 export async function trackRouteLoad(route) {

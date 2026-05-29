@@ -120,16 +120,32 @@ var MorningDashboard = (() => {
       weekday: "long",
       month: "long",
       day: "numeric",
-      year: "numeric",
-      timeZone: "America/New_York"
+      year: "numeric"
     }).format(date);
   }
   function displayTime(date = /* @__PURE__ */ new Date()) {
     return new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
-      minute: "2-digit",
-      timeZone: "America/New_York"
+      minute: "2-digit"
     }).format(date);
+  }
+  function displayTimeZone(date = /* @__PURE__ */ new Date()) {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" }).formatToParts(date);
+    return parts.find((part) => part.type === "timeZoneName")?.value || "";
+  }
+  function displayDateTime(value) {
+    if (!value) return "date unavailable";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    const timestamp = new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short"
+    }).format(date);
+    return timestamp.replace(",", "");
   }
   function empty(message) {
     return `<div class="empty">${esc(message)}</div>`;
@@ -526,7 +542,7 @@ var MorningDashboard = (() => {
   function storyCard(story, index) {
     return `
     <article class="card story" data-source="${esc(story.source)}">
-      <span class="meta">${String(index).padStart(2, "0")} / ${esc(story.source)}</span>
+      <span class="meta">${String(index).padStart(2, "0")} / ${esc(story.source)} / ${esc(displayDateTime(story.published))}</span>
       <h3><a href="${esc(safeUrl(story.url))}" target="_blank" rel="noreferrer">${esc(story.title)}</a></h3>
       <p>${esc(shorten(story.summary, 190))}</p>
     </article>
@@ -605,7 +621,7 @@ var MorningDashboard = (() => {
     </section>
     ${lead ? `
       <section class="lead story" data-source="${esc(lead.source)}">
-        <span class="meta">${esc(lead.source)} / ${esc(lead.published || "date unavailable")}</span>
+        <span class="meta">${esc(lead.source)} / ${esc(displayDateTime(lead.published))}</span>
         <h2><a href="${esc(safeUrl(lead.url))}" target="_blank" rel="noreferrer">${esc(lead.title)}</a></h2>
         <p>${esc(shorten(lead.summary, 300))}</p>
       </section>
@@ -647,7 +663,7 @@ var MorningDashboard = (() => {
         <nav class="nav" aria-label="Dashboard pages">
           ${pages.map((item) => `<a href="#${item.id}"${item.id === route ? ' aria-current="page"' : ""}>${esc(item.label)}</a>`).join("")}
         </nav>
-        <div class="clock"><strong id="clock">${esc(displayTime())}</strong><span>ET</span></div>
+        <div class="clock"><strong id="clock">${esc(displayTime())}</strong><span id="clock-zone">${esc(displayTimeZone())}</span></div>
       </header>
       <div class="scroll-area" id="view" tabindex="-1"></div>
     </main>
@@ -659,6 +675,8 @@ var MorningDashboard = (() => {
   function tick() {
     const clock = qs("#clock");
     if (clock) clock.textContent = displayTime();
+    const zone = qs("#clock-zone");
+    if (zone) zone.textContent = displayTimeZone();
   }
   async function trackRouteLoad(route) {
     try {

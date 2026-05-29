@@ -1,10 +1,10 @@
-import { empty, esc, getJson, hydrateCommonStatus, qs, qsa, safeUrl, shorten } from "./utils.js";
+import { displayDateTime, empty, esc, getJson, hydrateCommonStatus, qs, qsa, safeUrl, shorten } from "./utils.js";
 import { loadTickets, statusClass, statusCounts } from "./tickets.js";
 
 function storyCard(story, index) {
   return `
     <article class="card story" data-source="${esc(story.source)}">
-      <span class="meta">${String(index).padStart(2, "0")} / ${esc(story.source)}</span>
+      <span class="meta">${String(index).padStart(2, "0")} / ${esc(story.source)} / ${esc(displayDateTime(story.published))}</span>
       <h3><a href="${esc(safeUrl(story.url))}" target="_blank" rel="noreferrer">${esc(story.title)}</a></h3>
       <p>${esc(shorten(story.summary, 190))}</p>
     </article>
@@ -90,7 +90,7 @@ export async function renderNews(view) {
     </section>
     ${lead ? `
       <section class="lead story" data-source="${esc(lead.source)}">
-        <span class="meta">${esc(lead.source)} / ${esc(lead.published || "date unavailable")}</span>
+        <span class="meta">${esc(lead.source)} / ${esc(displayDateTime(lead.published))}</span>
         <h2><a href="${esc(safeUrl(lead.url))}" target="_blank" rel="noreferrer">${esc(lead.title)}</a></h2>
         <p>${esc(shorten(lead.summary, 300))}</p>
       </section>
