@@ -458,33 +458,32 @@ var MorningDashboard = (() => {
         <h3>${esc(ticket.app || "Unassigned app")}</h3>
         <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
       </div>
-      <p class="ticket-issue ticket-issue-preview">${esc(ticketExcerpt(ticket.issue))}</p>
       <div class="ticket-meta-grid">
         <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
         <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
         <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
         <div><span class="meta">Ticket</span>#${esc(ticket.rid)}</div>
       </div>
+      <p class="ticket-issue ticket-issue-preview">${esc(ticketExcerpt(ticket.issue))}</p>
     </article>
   `;
   }
   function openTicket(ticket) {
     qs("#ticket-title").textContent = ticket.app || "Unassigned app";
+    const modalStatus = qs("#ticket-modal-status");
+    modalStatus.className = `pill ${statusClass(ticket.status)}`;
+    modalStatus.textContent = ticket.status || "No status";
     qs("#ticket-detail").innerHTML = `
-    <div class="ticket-detail-topline">
-      <span class="pill ${esc(statusClass(ticket.status))}">${esc(ticket.status || "No status")}</span>
-      <span class="ticket-id">Ticket #${esc(ticket.rid)}</span>
-    </div>
-    <section class="ticket-detail-section">
-      <p class="meta">Issue</p>
-      <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
-    </section>
     <div class="ticket-meta-grid ticket-detail-meta">
       <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
       <div><span class="meta">Type</span>${esc(ticket.type || "Unspecified")}</div>
       <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
       <div><span class="meta">Ticket</span>#${esc(ticket.rid)}</div>
     </div>
+    <section class="ticket-detail-section">
+      <p class="meta">Issue</p>
+      <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
+    </section>
     <a class="refresh" href="${esc(safeUrl(ticket.url))}" target="_blank" rel="noreferrer">Open record in Quickbase</a>
   `;
     qs("#ticket-modal").classList.add("open");
@@ -502,7 +501,13 @@ var MorningDashboard = (() => {
     <section class="ticket-list" id="ticket-list"></section>
     <div class="modal" id="ticket-modal">
       <div class="modal-panel ticket-modal-panel">
-        <div class="modal-head"><h2 id="ticket-title">Ticket</h2><button id="ticket-close" type="button">Close</button></div>
+        <div class="modal-head ticket-modal-head">
+          <div class="ticket-modal-title-row">
+            <h2 id="ticket-title">Ticket</h2>
+            <span id="ticket-modal-status" class="pill">Status</span>
+          </div>
+          <button id="ticket-close" type="button">Close</button>
+        </div>
         <div id="ticket-detail" class="ticket-detail"></div>
       </div>
     </div>

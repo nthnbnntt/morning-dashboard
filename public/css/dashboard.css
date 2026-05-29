@@ -597,15 +597,17 @@ h1 {
   padding: 20px;
 }
 
-.ticket-detail-topline {
+.ticket-modal-title-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
-.ticket-detail-topline .pill {
+.ticket-modal-title-row .pill {
+  flex: 0 0 auto;
   margin: 0;
+  margin-left: auto;
 }
 
 .ticket-detail-section {
@@ -628,8 +630,10 @@ h1 {
 }
 
 .ticket-detail-meta {
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.56);
+  padding: 14px;
 }
 
 .company-card {
@@ -696,9 +700,14 @@ h1 {
 }
 
 .ticket-modal-panel .modal-head h2 {
+  flex: 1 1 auto;
   margin: 0;
   font-size: clamp(1.45rem, 3vw, 2.1rem);
   line-height: 1.08;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modal-head button {
@@ -818,8 +827,13 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .ticket-detail-topline {
+  .ticket-modal-title-row {
     align-items: flex-start;
     flex-direction: column;
+    gap: 8px;
+  }
+
+  .ticket-modal-title-row .pill {
+    margin-left: 0;
   }
 }
