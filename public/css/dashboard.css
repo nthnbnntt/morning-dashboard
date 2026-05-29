@@ -437,7 +437,7 @@ h1 {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
-  min-height: 178px;
+  min-height: 196px;
   padding: 16px 18px;
   cursor: pointer;
 }
@@ -566,11 +566,11 @@ h1 {
 }
 
 .ticket-issue-preview {
-  min-height: 2.9em;
+  min-height: 4.35em;
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
 }
 
 .ticket-meta-grid {
@@ -689,7 +689,7 @@ h1 {
 }
 
 .modal-head {
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   align-items: center;
 }
 
@@ -710,19 +710,49 @@ h1 {
   white-space: nowrap;
 }
 
-.modal-head button {
+.modal-head button,
+.ticket-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 38px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
   color: var(--muted);
   padding: 0 14px;
+  font-size: 0.9rem;
   font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
 }
 
-.ticket-modal-panel .refresh {
-  justify-self: start;
-  text-decoration: none;
+.ticket-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 20px 20px;
+}
+
+.ticket-action {
+  min-width: 132px;
+  min-height: 44px;
+}
+
+.ticket-action.primary {
+  border-color: var(--teal);
+  background: var(--teal);
+  color: var(--paper);
+}
+
+.ticket-action.primary:hover {
+  color: var(--paper);
+  filter: brightness(0.95);
+}
+
+.ticket-action.secondary:hover {
+  border-color: rgba(15, 118, 110, 0.45);
+  color: var(--ink);
 }
 
 .row {
@@ -835,5 +865,13 @@ h1 {
 
   .ticket-modal-title-row .pill {
     margin-left: 0;
+  }
+
+  .ticket-modal-actions {
+    flex-direction: column;
+  }
+
+  .ticket-action {
+    width: 100%;
   }
 }

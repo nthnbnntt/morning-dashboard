@@ -68,12 +68,6 @@ function formatTicketDate(value) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function ticketExcerpt(value, maxLength = 155) {
-  const text = String(value || "No issue text").replace(/\s+/g, " ").trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength).trimEnd()}...`;
-}
-
 export function statusClass(status) {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "open") return "normal";
@@ -195,7 +189,7 @@ function ticketCard(ticket) {
         <div><span class="meta">Submitter</span>${esc(ticket.submitter || "Unknown")}</div>
         <div><span class="meta">Ticket</span>#${esc(ticket.rid)}</div>
       </div>
-      <p class="ticket-issue ticket-issue-preview">${esc(ticketExcerpt(ticket.issue))}</p>
+      <p class="ticket-issue ticket-issue-preview">${esc(ticket.issue || "No issue text")}</p>
     </article>
   `;
 }
@@ -205,6 +199,7 @@ function openTicket(ticket) {
   const modalStatus = qs("#ticket-modal-status");
   modalStatus.className = `pill ${statusClass(ticket.status)}`;
   modalStatus.textContent = ticket.status || "No status";
+  qs("#ticket-open-record").href = safeUrl(ticket.url);
   qs("#ticket-detail").innerHTML = `
     <div class="ticket-meta-grid ticket-detail-meta">
       <div><span class="meta">Date</span>${esc(formatTicketDate(ticket.date))}</div>
@@ -216,7 +211,6 @@ function openTicket(ticket) {
       <p class="meta">Issue</p>
       <p class="ticket-issue">${esc(ticket.issue || "No issue text")}</p>
     </section>
-    <a class="refresh" href="${esc(safeUrl(ticket.url))}" target="_blank" rel="noreferrer">Open record in Quickbase</a>
   `;
   qs("#ticket-modal").classList.add("open");
 }
@@ -239,9 +233,12 @@ export async function renderTickets(view) {
             <h2 id="ticket-title">Ticket</h2>
             <span id="ticket-modal-status" class="pill">Status</span>
           </div>
-          <button id="ticket-close" type="button">Close</button>
         </div>
         <div id="ticket-detail" class="ticket-detail"></div>
+        <div class="ticket-modal-actions">
+          <a id="ticket-open-record" class="ticket-action primary" href="#" target="_blank" rel="noreferrer">Open ticket</a>
+          <button id="ticket-close" class="ticket-action secondary" type="button">Close</button>
+        </div>
       </div>
     </div>
   `;
