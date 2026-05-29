@@ -318,6 +318,9 @@ var MorningDashboard = (() => {
       return null;
     }
   }
+  function cachedTicketsSnapshot() {
+    return readTicketCache();
+  }
   function writeTicketCache(tickets) {
     ticketMemoryCache = { at: Date.now(), tickets };
     try {
@@ -604,6 +607,7 @@ var MorningDashboard = (() => {
     const payload = await getJson(`/api/news?refresh=1&t=${Date.now()}`);
     const stories = payload.stories || [];
     const [lead, ...rest] = stories;
+    const cachedTickets = cachedTicketsSnapshot();
     if (!stories.length) {
       view.innerHTML = empty("No stories are available yet.");
       return;
@@ -616,8 +620,7 @@ var MorningDashboard = (() => {
         <span class="meta" id="qb-detail">Checking status...</span>
         <a id="qb-link" class="text-link" href="https://quickbasestatus.status.page/#!/" target="_blank" rel="noreferrer">Open</a>
       </div>
-      <div class="card ticket-news-card" id="news-ticket-summary"><span class="meta">Tickets</span><h2>Loading...</h2></div>
-      <div class="source-list">${sourceButtons(stories)}</div>
+      <div class="card ticket-news-card" id="news-ticket-summary">${cachedTickets ? ticketStatusSummary(cachedTickets) : '<span class="meta">Tickets</span><h2>Loading...</h2>'}</div>
     </section>
     ${lead ? `
       <section class="lead story" data-source="${esc(lead.source)}">
@@ -628,6 +631,7 @@ var MorningDashboard = (() => {
     ` : ""}
     <section>
       <div class="section-title"><h2 id="news-start">Priority Scan</h2><span class="meta">${stories.length} stories</span></div>
+      <div class="source-list source-filter-row">${sourceButtons(stories)}</div>
       <div class="grid">${rest.map((story, index) => storyCard(story, index + 2)).join("")}</div>
     </section>
   `;

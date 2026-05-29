@@ -311,6 +311,10 @@ h1 {
   flex-wrap: wrap;
 }
 
+.source-filter-row {
+  margin-bottom: 14px;
+}
+
 .source-list button,
 .refresh,
 .filter-pill {

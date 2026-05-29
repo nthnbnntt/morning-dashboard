@@ -28,6 +28,10 @@ function readTicketCache() {
   }
 }
 
+export function cachedTicketsSnapshot() {
+  return readTicketCache();
+}
+
 function writeTicketCache(tickets) {
   ticketMemoryCache = { at: Date.now(), tickets };
   try {
