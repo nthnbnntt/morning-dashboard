@@ -437,7 +437,7 @@ h1 {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
-  min-height: 0;
+  min-height: 178px;
   padding: 16px 18px;
   cursor: pointer;
 }
@@ -554,12 +554,23 @@ h1 {
   margin: 0;
   font-size: 1rem;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ticket-issue {
   margin: 0;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.ticket-issue-preview {
+  min-height: 2.9em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .ticket-meta-grid {
@@ -581,15 +592,44 @@ h1 {
   gap: 10px;
 }
 
-.ticket-detail-summary {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 6px;
+.ticket-detail {
+  gap: 16px;
+  padding: 20px;
 }
 
-.ticket-detail-summary .ticket-issue {
+.ticket-detail-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ticket-detail-topline .pill {
   margin: 0;
-  line-height: 1.3;
+}
+
+.ticket-detail-section {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 16px;
+}
+
+.ticket-detail-section .meta {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.ticket-detail-section .ticket-issue {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.05rem;
+  line-height: 1.45;
+}
+
+.ticket-detail-meta {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
 }
 
 .company-card {
@@ -633,6 +673,11 @@ h1 {
   padding: 20px;
 }
 
+.ticket-modal-panel {
+  width: min(760px, 100%);
+  padding: 0;
+}
+
 .modal-head,
 .row {
   display: grid;
@@ -644,6 +689,18 @@ h1 {
   align-items: center;
 }
 
+.ticket-modal-panel .modal-head {
+  gap: 16px;
+  padding: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ticket-modal-panel .modal-head h2 {
+  margin: 0;
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+  line-height: 1.08;
+}
+
 .modal-head button {
   min-height: 38px;
   border: 1px solid var(--line);
@@ -652,6 +709,11 @@ h1 {
   color: var(--muted);
   padding: 0 14px;
   font-weight: 800;
+}
+
+.ticket-modal-panel .refresh {
+  justify-self: start;
+  text-decoration: none;
 }
 
 .row {
@@ -732,8 +794,7 @@ h1 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .company-card,
-  .ticket-card {
+  .company-card {
     min-height: 0;
   }
 }
@@ -755,5 +816,10 @@ h1 {
 
   .ticket-meta-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ticket-detail-topline {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
