@@ -41,6 +41,25 @@ function enableSourceFilters(root) {
   });
 }
 
+function newsContent(stories) {
+  const [lead, ...rest] = stories;
+  if (!stories.length) return empty("No stories are available yet.");
+  return `
+    ${lead ? `
+      <section class="lead story" data-source="${esc(lead.source)}">
+        <span class="meta">${esc(lead.source)} / ${esc(displayDateTime(lead.published))}</span>
+        <h2><a href="${esc(safeUrl(lead.url))}" target="_blank" rel="noreferrer">${esc(lead.title)}</a></h2>
+        <p>${esc(shorten(lead.summary, 300))}</p>
+      </section>
+    ` : ""}
+    <section>
+      <div class="section-title"><h2 id="news-start">Priority Scan</h2><span class="meta">${stories.length} stories</span></div>
+      <div class="source-list source-filter-row">${sourceButtons(stories)}</div>
+      <div class="grid">${rest.map((story, index) => storyCard(story, index + 2)).join("")}</div>
+    </section>
+  `;
+}
+
 function ticketStatusSummary(tickets) {
   const counts = Array.from(statusCounts(tickets).entries())
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
@@ -69,15 +88,7 @@ async function hydrateTicketSummary() {
 }
 
 export async function renderNews(view) {
-  const payload = await getJson(`/api/news?refresh=1&t=${Date.now()}`);
-  const stories = payload.stories || [];
-  const [lead, ...rest] = stories;
   const cachedTickets = cachedTicketsSnapshot();
-  if (!stories.length) {
-    view.innerHTML = empty("No stories are available yet.");
-    return;
-  }
-
   view.innerHTML = `
     <section class="panel">
       <div class="status" id="qb-status" data-state="unknown">
@@ -88,19 +99,19 @@ export async function renderNews(view) {
       </div>
       <div class="card ticket-news-card" id="news-ticket-summary">${cachedTickets ? ticketStatusSummary(cachedTickets) : '<span class="meta">Tickets</span><h2>Loading...</h2>'}</div>
     </section>
-    ${lead ? `
-      <section class="lead story" data-source="${esc(lead.source)}">
-        <span class="meta">${esc(lead.source)} / ${esc(displayDateTime(lead.published))}</span>
-        <h2><a href="${esc(safeUrl(lead.url))}" target="_blank" rel="noreferrer">${esc(lead.title)}</a></h2>
-        <p>${esc(shorten(lead.summary, 300))}</p>
-      </section>
-    ` : ""}
-    <section>
-      <div class="section-title"><h2 id="news-start">Priority Scan</h2><span class="meta">${stories.length} stories</span></div>
-      <div class="source-list source-filter-row">${sourceButtons(stories)}</div>
-      <div class="grid">${rest.map((story, index) => storyCard(story, index + 2)).join("")}</div>
-    </section>
+    <div id="news-content">${empty("Refreshing news...")}</div>
   `;
-  enableSourceFilters(view);
-  await Promise.all([hydrateCommonStatus(), hydrateTicketSummary()]);
+  const summaryTasks = Promise.all([hydrateCommonStatus(), hydrateTicketSummary()]);
+  try {
+    const payload = await getJson(`/api/news?refresh=1&t=${Date.now()}`);
+    const content = qs("#news-content", view);
+    if (content) {
+      content.innerHTML = newsContent(payload.stories || []);
+      enableSourceFilters(content);
+    }
+  } catch (err) {
+    const content = qs("#news-content", view);
+    if (content) content.innerHTML = `<section>${empty(err?.message || "News is unavailable.")}</section>`;
+  }
+  await summaryTasks;
 }

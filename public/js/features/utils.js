@@ -192,7 +192,7 @@ export async function hydrateCommonStatus() {
   const status = qs("#qb-status");
   if (!status) return;
   try {
-    const data = await getJson("/api/quickbase-status");
+    const data = await cachedJson("/api/quickbase-status", { ttlMs: 60000 });
     status.dataset.state = data.state || "unknown";
     qs("#qb-label").textContent = `Quickbase ${data.label || ""}`;
     qs("#qb-detail").textContent = data.detail || "";

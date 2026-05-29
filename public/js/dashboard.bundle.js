@@ -169,7 +169,7 @@ var MorningDashboard = (() => {
     const status = qs("#qb-status");
     if (!status) return;
     try {
-      const data = await getJson("/api/quickbase-status");
+      const data = await cachedJson("/api/quickbase-status", { ttlMs: 6e4 });
       status.dataset.state = data.state || "unknown";
       qs("#qb-label").textContent = `Quickbase ${data.label || ""}`;
       qs("#qb-detail").textContent = data.detail || "";
@@ -579,6 +579,24 @@ var MorningDashboard = (() => {
       });
     });
   }
+  function newsContent(stories) {
+    const [lead, ...rest] = stories;
+    if (!stories.length) return empty("No stories are available yet.");
+    return `
+    ${lead ? `
+      <section class="lead story" data-source="${esc(lead.source)}">
+        <span class="meta">${esc(lead.source)} / ${esc(displayDateTime(lead.published))}</span>
+        <h2><a href="${esc(safeUrl(lead.url))}" target="_blank" rel="noreferrer">${esc(lead.title)}</a></h2>
+        <p>${esc(shorten(lead.summary, 300))}</p>
+      </section>
+    ` : ""}
+    <section>
+      <div class="section-title"><h2 id="news-start">Priority Scan</h2><span class="meta">${stories.length} stories</span></div>
+      <div class="source-list source-filter-row">${sourceButtons(stories)}</div>
+      <div class="grid">${rest.map((story, index) => storyCard(story, index + 2)).join("")}</div>
+    </section>
+  `;
+  }
   function ticketStatusSummary(tickets) {
     const counts = Array.from(statusCounts(tickets).entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     return `
@@ -604,14 +622,7 @@ var MorningDashboard = (() => {
     }
   }
   async function renderNews(view) {
-    const payload = await getJson(`/api/news?refresh=1&t=${Date.now()}`);
-    const stories = payload.stories || [];
-    const [lead, ...rest] = stories;
     const cachedTickets = cachedTicketsSnapshot();
-    if (!stories.length) {
-      view.innerHTML = empty("No stories are available yet.");
-      return;
-    }
     view.innerHTML = `
     <section class="panel">
       <div class="status" id="qb-status" data-state="unknown">
@@ -622,21 +633,21 @@ var MorningDashboard = (() => {
       </div>
       <div class="card ticket-news-card" id="news-ticket-summary">${cachedTickets ? ticketStatusSummary(cachedTickets) : '<span class="meta">Tickets</span><h2>Loading...</h2>'}</div>
     </section>
-    ${lead ? `
-      <section class="lead story" data-source="${esc(lead.source)}">
-        <span class="meta">${esc(lead.source)} / ${esc(displayDateTime(lead.published))}</span>
-        <h2><a href="${esc(safeUrl(lead.url))}" target="_blank" rel="noreferrer">${esc(lead.title)}</a></h2>
-        <p>${esc(shorten(lead.summary, 300))}</p>
-      </section>
-    ` : ""}
-    <section>
-      <div class="section-title"><h2 id="news-start">Priority Scan</h2><span class="meta">${stories.length} stories</span></div>
-      <div class="source-list source-filter-row">${sourceButtons(stories)}</div>
-      <div class="grid">${rest.map((story, index) => storyCard(story, index + 2)).join("")}</div>
-    </section>
+    <div id="news-content">${empty("Refreshing news...")}</div>
   `;
-    enableSourceFilters(view);
-    await Promise.all([hydrateCommonStatus(), hydrateTicketSummary()]);
+    const summaryTasks = Promise.all([hydrateCommonStatus(), hydrateTicketSummary()]);
+    try {
+      const payload = await getJson(`/api/news?refresh=1&t=${Date.now()}`);
+      const content = qs("#news-content", view);
+      if (content) {
+        content.innerHTML = newsContent(payload.stories || []);
+        enableSourceFilters(content);
+      }
+    } catch (err) {
+      const content = qs("#news-content", view);
+      if (content) content.innerHTML = `<section>${empty(err?.message || "News is unavailable.")}</section>`;
+    }
+    await summaryTasks;
   }
 
   // public/js/features/navigation.js
@@ -802,7 +813,9 @@ var MorningDashboard = (() => {
     const route = currentRoute();
     renderShell(route);
     const view = qs("#view");
-    view.innerHTML = '<section class="panel"><h2>Loading</h2><p>Getting the latest dashboard data...</p></section>';
+    if (route !== "news") {
+      view.innerHTML = '<section class="panel"><h2>Loading</h2><p>Getting the latest dashboard data...</p></section>';
+    }
     mdLog("route.render_started", { route });
     try {
       await renderers[route](view);

@@ -18,7 +18,9 @@ async function renderRoute() {
   const route = currentRoute();
   renderShell(route);
   const view = qs("#view");
-  view.innerHTML = '<section class="panel"><h2>Loading</h2><p>Getting the latest dashboard data...</p></section>';
+  if (route !== "news") {
+    view.innerHTML = '<section class="panel"><h2>Loading</h2><p>Getting the latest dashboard data...</p></section>';
+  }
   mdLog("route.render_started", { route });
   try {
     await renderers[route](view);
