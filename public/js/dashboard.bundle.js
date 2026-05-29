@@ -380,10 +380,17 @@ var MorningDashboard = (() => {
     </div>
   `;
   }
-  function initialStatusFilter(tickets) {
+  function initialStatusFilters(tickets) {
     const query = location.hash.split("?")[1] || "";
-    const status = new URLSearchParams(query).get("status") || "";
-    return tickets.some((ticket) => ticket.status === status) ? status : "";
+    const params = new URLSearchParams(query);
+    const validStatuses = new Set(tickets.map((ticket) => ticket.status));
+    const selected = /* @__PURE__ */ new Set();
+    params.getAll("status").forEach((value) => {
+      value.split(",").map((status) => status.trim()).forEach((status) => {
+        if (validStatuses.has(status)) selected.add(status);
+      });
+    });
+    return selected;
   }
   async function getTemporaryToken() {
     const cfg = config();
@@ -512,24 +519,30 @@ var MorningDashboard = (() => {
   `;
     try {
       let shown2 = function(ticket) {
-        return !filter || ticket.status === filter;
+        return activeFilters.size === 0 || activeFilters.has(ticket.status);
       }, renderList2 = function() {
         const visibleTickets = tickets.filter(shown2);
         qs("#ticket-list").innerHTML = visibleTickets.map(ticketCard).join("") || empty("No tickets match this filter.");
+      }, syncFilterButtons2 = function() {
+        qsa(".ticket-filters button", view).forEach((button) => {
+          button.classList.toggle("active", activeFilters.has(button.dataset.filter));
+        });
       };
-      var shown = shown2, renderList = renderList2;
+      var shown = shown2, renderList = renderList2, syncFilterButtons = syncFilterButtons2;
       const tickets = await loadTickets();
       qs("#ticket-status").textContent = `${tickets.length} tickets loaded from Quickbase.`;
       qs("#ticket-filters").innerHTML = ticketStatusFilters(tickets);
-      let filter = initialStatusFilter(tickets);
+      const activeFilters = initialStatusFilters(tickets);
       qsa(".ticket-filters button", view).forEach((button) => {
-        button.classList.toggle("active", button.dataset.filter === filter);
         button.addEventListener("click", () => {
-          filter = filter === button.dataset.filter ? "" : button.dataset.filter;
-          qsa(".ticket-filters button", view).forEach((item) => item.classList.toggle("active", item.dataset.filter === filter));
+          const status = button.dataset.filter;
+          if (activeFilters.has(status)) activeFilters.delete(status);
+          else activeFilters.add(status);
+          syncFilterButtons2();
           renderList2();
         });
       });
+      syncFilterButtons2();
       renderList2();
       qs("#ticket-list").addEventListener("click", (event) => {
         const card = event.target.closest(".ticket-card");
